@@ -5,9 +5,8 @@ Yet another collection of JavaScript utility and helper modules for NodeJS and t
 libbetter has no outside dependencies and is lightweight.
 
 ### Contents:
-<pre>
-libbetter consists of:
- - **BetterLog**      Logging for browser and terminal. Standalone.
+<pre>libbetter consists of:
+ - <b>BetterLog</b>   Logging for browser and terminal. Standalone.
  - **BetterEvents**   Advanced event emitter. Standalone.
  - **BetterUtil**
    - bu-common.js        General utility functions for objects, arrays, promises etc. Depends on BetterLog.
