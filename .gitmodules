@@ -1,3 +1,9 @@
 [submodule "util"]
 	path = util
 	url = https://github.com/x7dude/BetterUtil
+[submodule "log"]
+	path = log
+	url = https://github.com/x7dude/BetterLog
+[submodule "events"]
+	path = events
+	url = https://github.com/x7dude/BetterEvents
