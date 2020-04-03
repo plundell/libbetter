@@ -2,8 +2,8 @@
 Yet another collection of JavaScript utility and helper modules for NodeJS and the browser. 
 
 ### Aim:
- - no outside dependencies
- - lightweigh
+ - no outside dependencies (NOTE: a few small packages were polyfilled in BetterUtil)
+ - lightweight
 
 ### Contents:
 <pre>libbetter consists of 3 sub-modules (which can all be loaded independently):
