@@ -4,6 +4,7 @@
   ,"description": "Yet another collection of JavaScript utility and helper modules for NodeJS and the browser."
   ,"scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
+    ,"build":"npx webpack build-browser.js -o dist/libbetter.js"
   }
   ,"author": "plundell"
   ,"license": "MIT"
