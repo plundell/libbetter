@@ -8,4 +8,13 @@
   }
   ,"author": "plundell"
   ,"license": "MIT"
+  ,"homepage": "https://github.com/plundell/libbetter"
+  ,"repository": {
+    "type": "git"
+    ,"url": "git+https://github.com/plundell/libbetter.git"
+  }
+  ,"devDependencies": {
+    "webpack": "^4.42.1",
+    "webpack-cli": "^3.3.11"
+  }
 }
