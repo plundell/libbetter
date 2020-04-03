@@ -2,7 +2,7 @@
 Yet another collection of JavaScript utility and helper modules for NodeJS and the browser. 
 
 ### Aim:
- - no outside dependencies (NOTE: a few small packages were polyfilled in BetterUtil)
+ - no outside dependencies (NOTE: a few small packages were polyfilled in <i>util</i>)
  - lightweight
 
 ### Contents:
