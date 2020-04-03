@@ -4,7 +4,7 @@
  * @sub-module BetterEvents
  * @sub-module BetterUtil.bu-node
  *
- * @author x7dude
+ * @author plundell
  * @license MIT
  */
 'use strict';

@@ -1,9 +1,9 @@
 [submodule "util"]
 	path = util
-	url = https://github.com/x7dude/BetterUtil
+	url = https://github.com/plundell/BetterUtil
 [submodule "log"]
 	path = log
-	url = https://github.com/x7dude/BetterLog
+	url = https://github.com/plundell/BetterLog
 [submodule "events"]
 	path = events
-	url = https://github.com/x7dude/BetterEvents
+	url = https://github.com/plundell/BetterEvents
