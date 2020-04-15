@@ -30,18 +30,18 @@ module.exports=function exportBetterUtilCommon(dep){
 		throw new Error("BUGBUG: The BetterLog constructor didn't have prop-funcs varType and logVar");
 	}
 
-	const log=new BetterLog('cX')
+	const _log=new BetterLog('cX')
 
 
 
-	const vX=require('./common/vars.util.js')({varType,logVar,log});
-	const aX=require('./common/arr.util.js')({vX,log});
-	const fX=require('./common/functions.util.js')({vX,log});
-	const oX=require('./common/obj.util.js')({vX,log});
-	const pX=require('./common/promise.util.js')({vX,log});
-	const stX=require('./common/string.util.js')({vX,log});
-	const mX=require('./common/misc.util.js')({vX,log, stX});
-	const tX=require('./common/time.util.js')({vX,log});
+	const vX=require('./common/vars.util.js')({varType,logVar,_log});
+	const aX=require('./common/arr.util.js')({vX,_log});
+	const fX=require('./common/functions.util.js')({vX,_log,aX});
+	const oX=require('./common/obj.util.js')({vX,_log});
+	const pX=require('./common/promise.util.js')({vX,_log});
+	const stX=require('./common/string.util.js')({vX,_log});
+	const mX=require('./common/misc.util.js')({vX,_log, stX});
+	const tX=require('./common/time.util.js')({vX,_log});
 	const netmask=require('./common/netmask.polyfill.js');
 	const validate=require('./common/validate.util.js')({netmask});
 	const Timer=require('./common/timer.class.js')({BetterLog,BetterEvents});
@@ -49,7 +49,7 @@ module.exports=function exportBetterUtilCommon(dep){
 	const cX=Object.assign(
 		{
 			validate
-			,log
+			,_log
 			,netmask
 			,Timer
 		}

@@ -9,9 +9,9 @@
 *
 * This module is required by bu-browser
 */
-module.exports=function export_mobX({cX,elemX}){
+module.exports=function export_mobX({cX,_log,elemX}){
 
-	const _log=cX._log
+	
 
 	//Methods to export
 	var _exports={
@@ -44,7 +44,7 @@ module.exports=function export_mobX({cX,elemX}){
 				//doing anything when eg. a <select> changed once
 				if(event.target!=lastInput){
 					//Before loosing reference to it, timeout the old input
-					if(lastInput.inputting){
+					if(lastInput && lastInput.inputting){
 						lastInput.inputting.expire();
 					}
 					lastInput=event.target;
@@ -61,9 +61,8 @@ module.exports=function export_mobX({cX,elemX}){
 				}else if(event.target.inputting){
 					//Push the timeout to the future
 					event.target.inputting.postpone();
-				}else{
-					_log.warn("BUGBUG: event.target!=lastInput and !.inputting",event);
 				}
+				//If it's already expired then do nothing...
 			}
 			,options={capture:true, passive:true};
 		;

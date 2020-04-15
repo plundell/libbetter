@@ -9,10 +9,10 @@
 * This module is required by bu-browser
 */
 ;'use strict';
-module.exports=function export_restX({cX}){
+module.exports=function export_restX({cX,_log}){
 
 
-	const _log=cX._log
+	
 
 	//Methods to export
 	var _exports={

@@ -10,7 +10,7 @@
 * 								this script is executed in
 */
 'use strict';
-module.exports=function export_fX({_log,vX}){
+module.exports=function export_fX({_log,vX,aX}){
 
 	//Methods to export
 	var _exports={
@@ -178,11 +178,11 @@ module.exports=function export_fX({_log,vX}){
 	*
 	*/
 	function betterTimeout(...args){
-		var delay=cX.getFirstOfType(args,'number');
-		var callback=cX.getFirstOfType(args,'function');
-		var callAsOverride=cX.getFirstOfType(args,'object');
+		var delay=aX.getFirstOfType(args,'number');
+		var callback=aX.getFirstOfType(args,'function');
+		var callAsOverride=aX.getFirstOfType(args,'object');
 
-		vX.checkTypes(['function','number'],callback,delay);
+		vX.checkTypes(['function','number'],[callback,delay]);
 
 		//Define private props
 		var timerId, result, after;

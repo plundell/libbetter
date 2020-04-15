@@ -9,9 +9,9 @@
 *
 * This module is required by bu-browser
 */
-module.exports=function export_elemX({cX}){
+module.exports=function export_elemX({cX,_log}){
 
-	const _log=cX._log;
+	
 
 	//Methods to export, returned at bottom
 	var _exports={
@@ -807,35 +807,40 @@ module.exports=function export_elemX({cX}){
 	*/
 	function getValueFromElem(node) {
 		cX.checkType('node',node);
-
+		var val;
 		switch(node.tagName){
 			case 'INPUT':
 				//For check:able inputs, return either the checked status, or the value if one exists and checked==true
 				if(node.type=='checkbox'||node.type=='radio'){
 					if(typeof node.value!='undefined'){
-						return node.checked ? node.value : undefined;
+						val=(node.checked ? node.value : undefined);
 					}else{
-						return node.checked;
+						val=node.checked;
 					}
+					break;
 				}
 				
 				//don't break;
 			case 'TEXTAREA':
 			case 'SELECT':
-				return node.value;
+				val=node.value;
+				break;
 
 			case 'FIELDSET':
 				if(node.type=='radioset' || node.type=='checklist'){
 					//2020-03-23: these work like regular inputs now...
-					return node.value;
+					val=node.value;
+					break;
 				}
 				//Else just fall through
 
 			default:
-				let text=getFirstTextNode();
-				return text ? cX.stringToPrimitive(text.data) : undefined;
+				let text=getFirstTextNode(node);
+				val=(text?cX.stringToPrimitive(text.data):undefined);
 				 //TODO: maybe add json 
 		}
+
+		return (val===''?undefined:val);
 	}
 
 

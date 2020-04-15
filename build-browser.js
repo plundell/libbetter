@@ -11,8 +11,12 @@
  */
 'use strict';
 
-window.BetterLog=require("./log");
-window.BetterEvents=require("./events");
+//This will set window.BetterLog
+require("./log");
+window.BetterLog._env='browser';
 
-//This will set .BetterUtil on the window as well
+//This will set window.BetterEvents
+require("./events");
+
+//This will set window.BetterUtil
 require("./util/bu-browser.js")(window);

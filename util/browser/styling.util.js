@@ -9,9 +9,9 @@
 *
 * This module is required by bu-browser
 */
-module.exports=function export_styleX({cX,elemX}){
+module.exports=function export_styleX({cX,_log,elemX}){
 
-	const _log=cX._log;
+	
 
 	//Methods to export
 	var _exports={
@@ -270,7 +270,12 @@ module.exports=function export_styleX({cX,elemX}){
 		//If none was found, try creating one as the last item of the last stylesheet (so it 
 		//gets highest priority)
 		try{
-			return appendCSSRule(styleSheets.pop(),selector,style);
+			let sheet=styleSheets.pop();
+			if(!sheet){
+				_log.note("No style sheet found at all, is that correct?");
+			}else{
+				return appendCSSRule(sheet,selector,style);
+			}
 		}catch(err){
 			_log.warn("Failed to add rule to existing stylesheet, will try creating own stylesheet next...",err);	
 		}

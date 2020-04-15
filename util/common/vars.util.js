@@ -33,6 +33,7 @@ module.exports=function export_vX({varType,logVar,_log}){
 		,'stringifySafe':stringifySafe
 		,'copy':copy
 		,'instanceOf':instanceOf
+		,stripComments
 	};
 
 
@@ -601,20 +602,24 @@ module.exports=function export_vX({varType,logVar,_log}){
 			//function again
 			var stripped=stripComments(x);
 			if(stripped!=x){
-				return tryJsonParse(stripped);
+				if(stripped==''){
+					_log.note("Was the whole string a comment? Because BetterUtil.stripComments() thought it was:",x);
+				}else{
+					return tryJsonParse(stripped);
+				}
 			}
 
 			if(x.includes(':')){ 
 				let wrapper=x.substr(0,1)+x.substr(-1); //NOTE substring() and substr() don't work the same!
 				if(wrapper=='{}'||wrapper=='[]'){
-					var warn=_log.makeEntry('warn',"This is probably a poorly formated JSON string:",x).exec();
+					var warn=_log.makeEntry('warn',"This is probably a poorly formated JSON string:",x);
 				}
 			}
 		}
 		
 		if(onlyReturnObject && (!x || typeof x !='object')){
-			warn||_log.debug('Not a JSON string: ', x); //don't debug if we've already warned
-			return undefined
+			if(warn){warn.exec();}else{_log.debug('Not a JSON string: ', x);} //don't debug if we've already warned
+			return undefined;
 		} else {
 			return x
 		}
@@ -722,7 +727,7 @@ module.exports=function export_vX({varType,logVar,_log}){
 
 
 
-	var stripper=new RegExp(/((?:(?:^\h*)?(?:\/\*[^*]*\*+(?:[^\/*][^*]*\*+)*\/(?:\h*\n(?=\h*(?:\n|\/\*|\/\/)))?|\/\/(?:[^\\]|\\\n?)*?(?:\n(?=\h*(?:\n|\/\*|\/\/))|(?=\n))))+)|("(?:\\[\S\s]|[^"\\])*"|'(?:\\[\S\s]|[^'\\])*'|[\S\s][^\/"'\\\s]*)/mg);
+	var stripper=new RegExp(/(\/\*[\w\'\s\r\n\*]*\*\/)|(\/\/[\w\s\']*)|(\<![\-\-\s\w\>\/]*\>)/mg)
 	function stripComments(str){
 		checkType('string',str);
 		return str.replace(stripper,'');

@@ -9,9 +9,9 @@
 * This module is required by bu-browser
 */
 ;'use strict';
-module.exports=function export_mobX({cX,elemX}){
+module.exports=function export_mobX({cX,_log,elemX}){
 
-	const _log=cX._log;
+	
 
 	//Methods to export
 	var _exports={

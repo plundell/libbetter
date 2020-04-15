@@ -12,7 +12,8 @@
 'use strict';
 
 const BetterLog=require("./log");
+BetterLog._env='browser';
 const BetterEvents=require("./events");
-const BetterUtil=require("./util/bu-browser.js")({BetterLog,BetterEvents});
+const BetterUtil=require("./util/bu-browser.js")({BetterLog,BetterEvents}); //this gets the browser-version of utils
 
 module.exports={BetterLog,BetterEvents,BetterUtil};

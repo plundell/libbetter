@@ -1,17 +1,22 @@
 {
   "name": "libbetter"
-  ,"version": "1.0.0"
+  ,"version": "1.0.1"
   ,"description": "Yet another collection of JavaScript utility and helper modules for NodeJS and the browser."
   ,"scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
-    ,"build":"npx webpack build-browser.js -o dist/libbetter.js"
+    ,"build": "npx webpack --mode=development build-browser.js -o dist/libbetter.js && npx webpack --mode=production build-browser.js -o dist/libbetter.min.js"
   }
   ,"author": "plundell"
   ,"license": "MIT"
+  ,"main":"./export-node.js"
   ,"homepage": "https://github.com/plundell/libbetter"
   ,"repository": {
     "type": "git"
     ,"url": "git+https://github.com/plundell/libbetter.git"
+  }
+  ,"dependencies":{
+  	"evenbetterlog":"^1.0.1"
+  	,"evenbetterevents":"^1.0.1"	
   }
   ,"devDependencies": {
     "webpack": "^4.42.1",
