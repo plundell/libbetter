@@ -19,7 +19,7 @@ module.exports=function export_vX({varType,logVar,_log}){
 		,'checkType':checkType
 		,'checkTypes':checkTypes
 		,'checkProps':checkProps
-		,'isEmpty':isEmpty
+		,isEmpty
 		,'sameValue':sameValue
 		,'compare':compare
 		,'getCompareFunc':getCompareFunc
@@ -68,7 +68,14 @@ module.exports=function export_vX({varType,logVar,_log}){
 	function checkType(expectedType, got,falseOrCaller=false){
 		//First do a very quick check so we don't waste time in non-complicated situations
 		if(typeof got==expectedType){
-			return expectedType;
+			//One scenario here is that we expected 'object' but got 'array' or 'null' which shows up as 'object'
+			if(expectedType=='object'){
+				if(got && got.constructor.name=='Object'){
+					return expectedType;		
+				}
+			}else{
+				return expectedType;
+			}
 		}
 
 		var errStr=(typeof falseOrCaller=='string' ? falseOrCaller+'() e' : 'E') +"xpected ";

@@ -54,6 +54,7 @@ module.exports=function export_fX({_log,vX,aX}){
 	* This function gets the names of a given functions arguments
 	*
 	* @param function f
+	* @param bool showDefaults 	If truthy, default values will show up
 	*
 	* @throws Error 	If function was bound or native
 	* @return array 	An array of strings (or empty array)
@@ -121,7 +122,8 @@ module.exports=function export_fX({_log,vX,aX}){
 	*
 	* @param function callback
 	* @opt function onDupCall 	An error-first callback for subsequent calls to @return. It can choose to return
-	*							 or log or throw.
+	*							 or log or throw. If omitted, the initial return value will be returned, or the initial
+	*							 error will be thrown again
 	* @throw <ble TypeError>
 	* @return function 		A new function. Subsequent calls to it will return/throw same as the first call unless $onDupCall
 	*/
@@ -145,6 +147,8 @@ module.exports=function export_fX({_log,vX,aX}){
 			}else if(onDupCall){
 				///...call it now with [error,value,[newArgs]]
 				return onDupCall(...onceCallback._once,args);
+			}else{
+				var [error,value]=onceCallback._once;
 			}
 
 			//If we're still running, this is either the first call or subsequent calls aren't a problem

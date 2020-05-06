@@ -508,190 +508,118 @@ module.exports=function export_elemX({cX,_log}){
 	* @return <input>|<select>|<fieldset> 		A single element element ready to be appended somewhere. All elements have a .value
 	*											prop that can be set directly
 	*/
-	function createInput(name,type='text',items=[]){
+	function createInput(name,type='text',items=null){
 
+		items=items||[]
 		cX.checkTypes(['string','string','array'],[name,type,items])
 		
-
-		if(type=='select'||type=='dropdown'||type=='radioset'||type=='checklist'){
-			var input;
-			if(type=='radioset'||type=='checklist'){
-				//This is a special case that groups multiple 'radio' <input>s into one <fieldset>. It has the benifit 
-				//of offering a single elem to attach listeners to, while offering the standard "form API" way of get/set
-				//the value of the grouped radio inputs
-				let fieldset=document.createElement('fieldset');
-				fieldset.setAttribute('bu-input',''); //flag so we can identify it easily
-				fieldset.type=type; //does not do anything for form-api, but is used by getValueFromElem() and setValueOnElem()
-				fieldset.name=name;
-
-				//To make it work we have to give only the <fieldset> the true $name, while the inputs get a random 
-				//(but same) name to ensure only one can be selected. Then we use getters/setters to bridge the gap. 
-				//Since we don't know if this field will be part of a form however, we CANNOT use the form-API, instead
-				//use use query selectors to find the nested inputs and alter them
-				var iname=`__${name}__`
-				if(type=='radioset'){
-					Object.defineProperty(fieldset,'value',{
-						enumerable:true
-						,get:()=>{
-							let i=fieldset.querySelector('input[type=radio]:checked');
-							return i==null ? undefined : i.value;
-						}
-						,set:(val)=>{
-							cX.checkType('primitive',val);
-							let i=fieldset.querySelector(`input[type=radio][value=${val}]`);
-							if(i){
-								i.checked=true;
-							}else{
-								//If the option doesn't exist then we unselect all (ie. the only selected one)
-								let i=fieldset.querySelector('input[type=radio]:checked');
-								if(i)
-									i.checked=false;
-							}
-							return;
-						}
-					})
-
-
-				}else{//type==checklist
-
-					//the checklist gets and sets an array
-					Object.defineProperty(fieldset,'value',{
-						enumerable:true
-						,get:()=>{
-							return Array.from(fieldset.querySelectorAll('input[type=checkbox]:checked')).map(elem=>elem.value)
-						}
-						,set:(arr)=>{
-							if(cX.checkType(['primitive','array'],arr)!='array'){
-								arr=[arr];
-							}
-							//Set the state of each checkbox according to the array (ie. unselect all not mentioned)
-							fieldset.querySelectorAll('input[type=checkbox]').forEach(elem=>elem.checked=arr.includes(elem.value));
-							return;
-						}
-					})
-				}
-
-
-				//Populate it
-				options.forEach(opt=>{
-					let i=document.createElement('input'), 
-						l=document.createElement('label')
-					;
-					i.type=(type=='radioset'?'radio':'checkbox');
-					if(typeof opt=='object'){
-						i.value=opt.value;
-						l.innerHTML=opt.label||opt.value;
-					}else{
-						i.value=l.innerHTML=opt;
-					}
-					//Mark the input so we know it's a part of the fieldset
-					i.setAttribute('bu-ignore','');
-
-					//the input goes inside the label so you can click the entire label, then the label goes 
-					//inside the overall fieldset
-					l.appendChild(i);
-					fieldset.appendChild(l);
-				})
-
-				//Since regard the fieldset as the ONLY input, we intercept the change and input events and 
-				//change their target 
-				function changeTargetToFieldset(event){
-					if(event.target!=this){
-						event.stopImmediatePropagation();
-						setTimeout(()=>this.dispatchEvent(evt))
-						 //^a timeout is required, else "DOMException: The event is already being dispatched.""
-					}
-				}
-				fieldset.addEventListener('input',changeTargetToFieldset,{capture:true})
-				fieldset.addEventListener('change',changeTargetToFieldset,{capture:true})
-
-
-				//One final same handling vv
-				input=fieldset;
-
-			}else{//type==select|dropdown
-
-
-				let select=document.createElement('select');
-				
-				//Create all the options and mark the default as selected
-				options.forEach(opt=>{
-					let o=document.createElement('option');
-					if(typeof opt=='object'){
-						o.value=opt.value;
-						o.innerHTML=opt.label||opt.value;
-					}else{
-						o.value=o.innerHTML=opt;
-					}
-					
-					select.appendChild(o);
-				})
-				
-
-				input=select; //for same handling vv
-			}
-
-
-			//Now the 1 bit of same handling for ^^, warn if no options were given
-			if(!items.length){
-				_log.warn("No items will be added to your "+type,input);
-			}
-
-			return input;
-
-		}else{
-			if(type=='toggle'){
-				//This is another special case where we'll need >1 elem so we wrap it in a fieldset. This also gives
-				//us the oppertunity to link the .value to the underlying .checked
-				let fieldset=document.createElement('fieldset')
-				fieldset.setAttribute('bu-input',''); //flag so we can identify it easily
-				fieldset.type=type;
-				fieldset.name=name;
-				fieldset.classList.add('toggle-wrapper');
-
-				//Allow accessing the checked state of the internal checkbox with a .value prop on the wrapper
-				Object.defineProperty(fieldset,'value',{
-					enumerable:true
-					,get:()=>fieldset.querySelector('input[type=checkbox]').checked
-					,set:(check)=>{fieldset.querySelector('input[type=checkbox]').checked=check?true:false}
-				})
-
-				//The actual input will be a checkbox...
-				let input=document.createElement('input');
-				input.type='checkbox';
-				fieldset.appendChild(input);
-
-				//...but we'll show a nice slider created by a span+css
-				let span=document.createElement('span');
-				span.classList.add('toggle-slider');
-				span.setAttribute('onclick','javascript:event.stopImmediatePropagation();')
-				  //^Only the <input> should emit a click event
-				fieldset.appendChild(span);
-
-				//This working as a slider is now dependent on some groovy css, @see toggleSliderCss and
-				//use it together with createCSSRule() from styling.util.js
-				
-				return fieldset;
-
-
-			}else{
-				var input;
-				if(type=='textarea'){
-					input=document.createElement('textarea');
-				}else{
-					input=document.createElement('input');
-					input.type=type;
-				}	
-				
-				input.name=name;
-
-				return input;
-			}
+		var input;
+		switch(type){
+			case 'radioset':
+				input=createInput.radioset(items); break;
+			case 'checklist':
+				input=createInput.checklist(items); break;
+			case 'select':
+			case 'dropdown':
+				input=createInput.dropdown(items); break;
+			case 'toggle':
+				input=createInput.toggle(); break;
+			case 'textarea':
+				input=document.createElement('textarea'); break;
+			default:
+				input=document.createElement('input');
+				input.type=type;
 		}
+
+		input.name=name;
+
+		return input;
 	}
 
 
-	var toggleSliderCss=Object.freeze({
+
+	createInput.radioset=function createRadioSet(items){
+		let fieldset=createFieldset('radioset')
+
+		//the checklist gets and sets an array
+		Object.defineProperty(fieldset,'value',{
+			enumerable:true
+			,get:()=>{
+				return Array.from(fieldset.querySelectorAll('input[type=checkbox]:checked')).map(elem=>elem.value)
+			}
+			,set:(arr)=>{
+				if(cX.checkType(['primitive','array'],arr)!='array'){
+					arr=[arr];
+				}
+				//Set the state of each checkbox according to the array (ie. unselect all not mentioned)
+				fieldset.querySelectorAll('input[type=checkbox]').forEach(elem=>elem.checked=arr.includes(elem.value));
+				return;
+			}
+		})
+
+		if(cX.varType(items)!='array' || !items.length){
+			_log.warn("Creating an empty radioset, ie. without actual <input type='radio'>s",fieldset);
+		}else{
+			addFieldsetItems(fieldset,'radio',items);
+		}
+
+		return fieldset;
+	}
+
+
+	createInput.checklist=function createChecklist(items){
+		let fieldset=createFieldset('checklist')
+
+		Object.defineProperty(fieldset,'value',{
+			enumerable:true
+			,get:()=>{
+				return Array.from(fieldset.querySelectorAll('input[type=checkbox]:checked')).map(elem=>elem.value)
+			}
+			,set:(arr)=>{
+				if(cX.checkType(['primitive','array'],arr)!='array'){
+					arr=[arr];
+				}
+				//Set the state of each checkbox according to the array (ie. unselect all not mentioned)
+				fieldset.querySelectorAll('input[type=checkbox]').forEach(elem=>elem.checked=arr.includes(elem.value));
+				return;
+			}
+		})
+
+		if(cX.varType(items)!='array' || !items.length){
+			_log.warn("Creating an empty checklist, ie. without actual <input type='checkbox'>s",fieldset);
+		}else{
+			addFieldsetItems(fieldset,'radio',items);
+		}
+
+		return fieldset;
+	}
+
+
+
+	createInput.dropdown=function createDropdown(options){
+		let select=document.createElement('select');
+		
+		if(cX.varType(options)!='array' || !options.length){
+			_log.warn("Creating an empty <select>, ie. the dropdown will not contain any <option>s",select);
+		}else{
+			//Create all the options
+			options.forEach(opt=>{
+				let o=document.createElement('option');
+				if(typeof opt=='object'){
+					o.value=opt.value;
+					o.innerHTML=opt.label||opt.value;
+				}else{
+					o.value=o.innerHTML=opt;
+				}
+				
+				select.appendChild(o);
+			})
+		}
+
+		return select;
+	}
+
+	const toggleSliderCss=Object.freeze({
 		'.toggle-wrapper':'position: relative;display: inline-block;width: 2em;height: 1em; border:0 none;padding:0;'
 		,'.toggle-wrapper input':'opacity: 0;width: 0;height: 0;display:block;' //if 'block' is removed then <span> sits under <input>
 		,'.toggle-slider':'position: absolute;cursor: pointer;top: 0;left: 0;right: 0;bottom: 0;border-radius: 1em;background-color: #ccc;-webkit-transition: .4s;transition: .4s;'
@@ -700,6 +628,132 @@ module.exports=function export_elemX({cX,_log}){
 		,'input:focus + .toggle-slider':'box-shadow: 0 0 1px #2196F3;'
 		,'input:checked + .toggle-slider:before':'-webkit-transform: translateX(1em);-ms-transform: translateX(1em);transform: translateX(1em);'
 	})
+	createInput.toggle=function createToggle(){
+		//This is another special case where we'll need >1 elem so we wrap it in a fieldset. This also gives
+		//us the oppertunity to link the .value to the underlying .checked
+		let fieldset=createFieldset('toggle')
+
+		fieldset.classList.add('toggle-wrapper');
+
+		//Allow accessing the checked state of the internal checkbox with a .value prop on the wrapper
+		Object.defineProperty(fieldset,'value',{
+			enumerable:true
+			,get:()=>fieldset.querySelector('input[type=checkbox]').checked
+			,set:(check)=>{fieldset.querySelector('input[type=checkbox]').checked=check?true:false}
+		})
+
+		//The actual input will be a checkbox...
+		let input=document.createElement('input');
+		input.type='checkbox';
+		fieldset.appendChild(input);
+
+		//...but we'll show a nice slider created by a span+css
+		let span=document.createElement('span');
+		span.classList.add('toggle-slider');
+		span.setAttribute('onclick','javascript:event.stopImmediatePropagation();')
+		  //^Only the <input> should emit a click event
+		fieldset.appendChild(span);
+
+		//This working as a slider is now dependent on some groovy css, @see toggleSliderCss and
+		//use it together with createCSSRule() from styling.util.js
+		
+		return fieldset;
+	}
+
+
+	createInput.datetime=function createDateTime(options){
+		let fieldset=createFieldset('datetime');
+
+		//Add seperate inputs for date and time
+		let date=document.createElement('input');
+		date.type='date'
+		fieldset.appendChild(date);
+
+		let date=document.createElement('input');
+		date.type='time'
+		fieldset.appendChild(time);
+
+		//Create getter/setter on the fieldset
+		Object.defineProperty(fieldset,'value',{
+			enumerable:true
+			,get:()=>cX.makeDate(fieldset.querySelector('input[type=date]').value,fieldset.querySelector('input[type=time]').value)
+			,set:(datetime)=>{
+				fieldset.querySelector('input[type=date]').value=cX.formatDate(datetime);
+				fieldset.querySelector('input[type=time]').value=cX.formatTime(datetime);
+			}
+		})
+
+		return fieldset;
+	}
+
+
+
+	function createFieldset(type){
+		let fieldset=document.createElement('fieldset');
+		fieldset.setAttribute('bu-input',''); //flag so we can identify it easily
+		fieldset.type=type; //does not do anything for form-api, but is used by getValueFromElem() and setValueOnElem()
+		return fieldset;
+	}
+
+	/*
+	* @param <HTMLElement> fieldset 	A <fieldset> elem 	NOTE: this live object will be appended
+	* @param string type 				'radio' or 'checkbox'
+	* @param array items 				Array of strings or of {label,value} used to create <input> children within the $fieldset
+	*
+	* @return void
+	*/
+	function addFieldsetItems(fieldset, type, items){
+		
+		//All radio inputs within a radioset need to have the same name, else more than one can be selected
+		if(type=='radio')
+			var groupname=cX.randomString(10); //10 characters should be enough...
+
+		//Create and all items
+		items.forEach(item=>{
+			let input=document.createElement('input'), 
+				label=document.createElement('label')
+			;
+
+			input.type=type;
+
+			if(typeof opt=='object'){
+				input.value=opt.value;
+				l.innerHTML=opt.label||opt.value;
+			}else{
+				input.value=l.innerHTML=opt;
+			}
+
+			//Mark the input so we know it's a part of the fieldset
+			input.setAttribute('bu-ignore','');
+
+			//Radiosets need the groupname, see ^
+			if(groupname)
+				input.name=groupname
+
+			//the input goes inside the label so you can click the entire label, then the label goes 
+			//inside the overall fieldset
+			label.appendChild(input);
+			fieldset.appendChild(label);
+		})
+
+		//Since regard the fieldset as the ONLY input, we intercept the change and input events and 
+		//change their target 
+		fieldset.addEventListener('input',changeTargetToFieldset,{capture:true})
+		fieldset.addEventListener('change',changeTargetToFieldset,{capture:true})
+
+		return;
+	}
+	function changeTargetToFieldset(event){
+		if(event.target!=this){
+			event.stopImmediatePropagation();
+			setTimeout(()=>this.dispatchEvent(evt))
+			 //^a timeout is required, else "DOMException: The event is already being dispatched.""
+		}
+	}
+
+
+
+
 
 
 

@@ -262,6 +262,9 @@ module.exports=function export_aX({_log,vX}){
 	*
 	* @param array arr
 	* @param function func
+	* @param bool retainIndex 	If truthy, the items will have the same indexes in their new arrays
+	*							as they did in the original. This will create non-sequential arrays
+	*
 	* @return array 			An array with items that returned truthy. The falsey items
 	*							are set on a hidden property .rest
 	*/

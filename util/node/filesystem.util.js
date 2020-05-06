@@ -73,10 +73,12 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 		,'writeFilePromise':writeFilePromise
 		,'readFilePromise':readFilePromise
 		,'deleteFilePromise':deleteFilePromise
+		,deletePromise
 		,'readFile':readFile
 		,'getJsonFromFile':getJsonFromFile
 		,'ls':ls
 		,'lh':lh
+		,isFolderEmpty
 		,'find':find
 		,'fileStatus':fileStatus
 		,'deleteIfEmpty':deleteIfEmpty
@@ -89,6 +91,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 		,'touch':touch
 		,'touchPromise':touchPromise
 		,'chmodPromise':chmodPromise
+		,move
 
 	}
 
@@ -136,7 +139,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	/*
 	* @param string path
 	* @param string type 		Expected type of path. @see inodeType()
-	* @param bool thrw 			If true this function will reject if path doesn't exist 
+	* @param bool rej 			If true this function will reject if path doesn't exist 
 	*
 	* @throws <BLE TypeError> 	if $path not string
 	* @throws <ble ENOENT>|<ble EACCESS>|<ble ETYPE>|<ble BUGBUG> 	@see _existsCallback()
@@ -196,7 +199,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 								err=log.makeError(err).addHandling("See seperate entry below for where the path broke");
 								ble.extra.push(err);
 							}
-							err.throw();
+							ble.throw();
 						}else{
 							return false;
 						}
@@ -356,6 +359,16 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 		Object.assign(info,cX.subObj(access,['read','write','execute']));
 	}
 
+	function statCommonEmpty(info){
+		if(info.exists){
+			if(info.type=='dir'){
+				info.empty=isFolderEmpty(info.path.full);
+			}else if(info.type=='file'){
+				info.empty=info.native.size?false:true;
+			}
+		}
+	}
+
 	/*
 	*
 	*	{
@@ -370,6 +383,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	*		}
 	*		,exists:bool
 	*		,type:'file'|'dir'|'block'|'raw'|'fifo'|'socket'|'symlink'
+	*		,empty:bool
 	*		,perm:755
 	*		,firstParent:First existing parent folder (can be same as path.dir)
 	*		,read:can current user read this path
@@ -422,6 +436,8 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 				statAccessAllCommon(info,accessAllSync(info.firstParent))
 			}
 
+			statCommonEmpty(info);
+
 		}catch(err){
 			if(err!='SKIP_TO_END')
 				log.error('Failed to get statSync',err);
@@ -457,6 +473,8 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 				);	
 				statAccessAllCommon(info,await accessAllPromise(info.firstParent))
 			}
+
+			statCommonEmpty(info);
 		}catch(err){
 			if(err!='SKIP_TO_END')
 				log.error('Failed to get stat',err);
@@ -577,6 +595,9 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	}
 
 
+	/*
+	* @return Promise(null,err) 	Rejects unless current user can read and write
+	*/
 	function checkReadWrite(path){
 		return accessPromise(path,'R')
 			.catch(()=>Promise.reject('read'))
@@ -935,20 +956,41 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 		return existsPromise(path)
 			.then(exists=>{
 				if(exists){
-					return new Promise((resolve,reject)=>{
-						fs.unlink(path, (err) => {
-							if(err)
-								reject(log.makeError(err).addHandling('Failed to delete existing file.'));
-							else
-								resolve(true);
-						});
-					})
-
+					return deleteFileCommon(path);
 				}else{
 					return Promise.resolve(false);
 				}
 			})
 	}
+
+	function deleteFileCommon(path){
+		return checkReadWrite(newPath)
+			.then(()=>cX.promisifyCallback(fs.rename,oldPath,newPath))
+			.catch(err=>err.addHandling('Failed to delete existing file.').reject())
+			.then(()=>true);
+	}
+
+
+	async function deletePromise(path){
+		try{
+			let s=await stat(path);
+			if(!s.exists)
+				return false;
+
+			if(s.type=='dir'){
+				await checkReadWrite(path);
+				fs.rmdir(path)
+			}else{
+				return deleteFileCommon(path);
+			}
+
+
+		}catch(err){
+			log.makeError("Failed to remove",path,err).reject();
+		}
+
+	}
+
 
 	/*
 	* @param string path
@@ -1102,6 +1144,11 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 			}
 		}
 		return details;
+	}
+
+
+	function isFolderEmpty(path){
+		return ls(path).length ? false : true
 	}
 
 	/*
@@ -1812,6 +1859,14 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 		var {callback,promise}=cX.exposedPromise();
 		fs.chmod(path,String(perms),callback);
 		return promise;
+	}
+
+
+	function move(oldPath,newPath){
+		return existsPromise(oldPath)
+			.then(()=>checkReadWrite(newPath))
+			.then(()=>cX.promisifyCallback(fs.rename,oldPath,newPath))
+		;
 	}
 
 

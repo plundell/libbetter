@@ -15,8 +15,11 @@ module.exports=function export_tX({vX,_log}){
 	var _exports={
 		BetterDate
 		,makeDate
+
 		,formatDate
 		,formatDatetime
+
+		,now
 		,today
 		,tomorrow
 		,todayMs
@@ -166,14 +169,23 @@ module.exports=function export_tX({vX,_log}){
 
 
 
-
-	function makeDate(x){
-		if(typeof x=='undefined')
+	/*
+	* @param mixed dateOrDatetime
+	* @opt string time
+	*
+	* @return <Date>
+	*/
+	function makeDate(dateOrDatetime,time=null){
+		if(typeof dateOrDatetime=='undefined')
 			return Date.now();
 		else{
-			var d=new Date(x);
+			if(time){
+				var d=new Date(formatDate(dateOrDatetime)+'T'+formatTime(time))
+			}else{
+				d=new Date(dateOrDatetime);
+			}
 			if(d=='Invalid Date'){
-				_log.makeError("Invalid Date:",_log.constructor.logVar(x)).setCode('EINVAL').throw();
+				_log.throwCode('EINVAL',"Invalid Date:",_log.constructor.logVar(x));
 			}
 			return d;
 		}
@@ -184,20 +196,62 @@ module.exports=function export_tX({vX,_log}){
 	*/
 	function formatDate(x){
 		x=makeDate(x);
-		var y = x.getFullYear(),
-			m = String(x.getMonth() + 1).padStart(2, '0'), //+1 => january is month 0
-			d = String(x.getDate()).padStart(2, '0')
+		var YYYY = x.getFullYear(),
+			MM = String(x.getMonth() + 1).padStart(2, '0'), //+1 => january is month 0
+			DD = String(x.getDate()).padStart(2, '0')
 		;
 
-		return `${y}-${m}-${d}`;
+		return `${YYYY}-${MM}-${DD}`;
 	}
 
+
 	/*
-	* @return string 
+	* @return string 	HH:MM
 	*/
-	function formatDatetime(x){
-		var str=makeDate(x).toString();
-		return str.split('(')[0];
+	function formatTime(x){
+		switch(vX.checkType(['<Date>','string','number'],x)){
+			case 'string':
+				//There are a number of options here, we could have eg:
+				//    1970-01-01T12:13
+				//    12:30
+				//    Wed May 06 2020 02:00:00 GMT+0200 (Central European Summer Time)
+				//so the easiest thing is to try if Date can recognize it...
+				if(new Date(x)=='Invalid Date'){
+					//...and otherwise assume it's '17:30' to which we just add a date and vv will do the rest
+					x='1970-01-01T'+x;
+				}
+			case 'number':
+				//This will be a timestamp, which can be handled like a Date
+				x=new Date(x);
+			default:
+				var HH=String(x.getHours()).padStart(2, '0')
+					,MM=String(x.getMinutes()).padStart(2, '0')
+				
+				return `${HH}:${MM}`;
+		}
+	}
+
+
+	/*
+	* @params @see makeDate()
+	*
+	* @return string YYYY-MM-DDTHH:MM
+	*/
+	function formatDatetime(){
+		var dt=makeDate.apply(this,arguments);
+		return formatDate(dt)+'T'+formatTime(dt);
+	}
+
+
+
+
+
+
+
+
+
+	function now(){
+		return formatDatetime();
 	}
 
 	function today(){

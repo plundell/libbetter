@@ -64,12 +64,13 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 		,'childProc':childProc
 		,'pidStatus':pidStatus
 		,'killPromise':killPromise
-		,'processExitPromise':processExitPromise
+		,resolveOnExit
 		,'spawnReadable':spawnReadable
 		,'spawnLineEmitter':spawnLineEmitter
 		,'argsToString':argsToString
 		,'dropPrivs':dropPrivs
 		,'ps':ps
+		,onAnyExitSignal
 	}
 
 	
@@ -170,8 +171,8 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 	function _execFileCallback(obj) {
 		// console.log(obj);
 		//Make sure we have strings
-		obj.stdout=(obj.stdout||'').toString().trim();
-		obj.stderr=(obj.stderr||'').toString().trim();
+		obj.stdout=String((obj.stdout||'')).trim();
+		obj.stderr=String((obj.stderr||'')).trim();
 		obj.duration=Date.now()-obj.start;
 
 		obj.error=obj.message||obj.error||null;
@@ -374,7 +375,7 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 	*												if pid passed. Rejects with TypeError, timeout or 'failure to start 
 	*												tracking'
 	*/
-	function processExitPromise(childOrPid,timeout=0){
+	function resolveOnExit(childOrPid,timeout=0){
 		return new Promise(function(resolve,reject){
 			var pid,child;
 			if(typeof childOrPid=='number'){
@@ -648,6 +649,38 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 		return execFileInPromise('ps',['aux'])
 			.then(obj=>cX.linuxTableToObjects(obj.stdout,true,true))
 			.catch(err=>log.makeError(err).prepend("Failed to get proclist").throw())
+	}
+
+
+	/*
+	* Register a single handler for all process.on events that will make the process exit. This handler
+	* will only be called once with the first event to fire
+	*
+	* @param object proc 		This process or a subprocess
+	* @param function handler(signal,code) 	
+	*
+	* @return function 	A callback that removes the listener again
+	*/
+	function onAnyExitSignal(proc,handler,once=false){
+		//Make sure it can only be called once
+		if(once)
+			handler=cX.once(handler);
+
+		//Register it on all events and save their listeners
+		var events=['SIGTERM','SIGINT','SIGHUP'];
+		var listeners=[];
+		events.forEach(signal=>{
+			let listener=(code)=>handler.call(this,signal,code);
+			process.on(signal,listener);
+			listeners.push(listener);
+		})
+
+		//Return a function that unregisters the handler from all events
+		return function(){
+			events.forEach((signal,i)=>{
+				process.removeListener(signal,listeners[i]);
+			})
+		}
 	}
 
 

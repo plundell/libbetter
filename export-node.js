@@ -13,6 +13,6 @@
 const BetterLog=require("./log");
 BetterLog._env='terminal';
 const BetterEvents=require("./events");
-const BetterUtil=require("./util")({BetterLog,BetterEvents}); //this gets the node-version of utils
+const BetterUtil=require("./util/bu-node")({BetterLog,BetterEvents}); //this gets the node-version of utils
 
 module.exports={BetterLog,BetterEvents,BetterUtil};

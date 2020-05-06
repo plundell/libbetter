@@ -14,8 +14,8 @@ module.exports=function export_pX({_log,vX}){
 	var _exports={
 		'sleep':sleep
 		,'toPromise':toPromise
-		,'callInPromise':callInPromise
-		,'wrapFuncInPromise':wrapFuncInPromise
+		,'applyPromise':applyPromise
+		,'createPromiseFunc':createPromiseFunc
 		,'awaitAllPromises':awaitAllPromises
 		,'firstResolved':firstResolved
 		,'InspectablePromise':InspectablePromise
@@ -25,6 +25,7 @@ module.exports=function export_pX({_log,vX}){
 		,'groupPromises':groupPromises
 		,'thenCallback':thenCallback
 		,'promiseAlways':promiseAlways
+		,promisifyCallback
 	}
 
 
@@ -67,7 +68,7 @@ module.exports=function export_pX({_log,vX}){
 		if(x instanceof Promise)
 			return x
 		else if(typeof x =='function')
-			return callInPromise(x)
+			return applyPromise(x)
 		else
 			return Promise.resolve(x);
 	}
@@ -76,16 +77,17 @@ module.exports=function export_pX({_log,vX}){
 	/*
 	* Call a function and return a promise that resolves/rejects with result
 	*/
-	function callInPromise(func,args,callAs=undefined){
+	function applyPromise(func,callAs,args){
 		try{
 			vX.checkType('function',func);
 			
 			if(vX.varType(args)!='array')
 				args=[args];
 
-			vX.checkType(['object','null','undefined'],callAs);
+			if(vX.varType(callAs)!='object')
+				callAs=this;
 
-			return new Promise(async function _callInPromise(resolve,reject){
+			return new Promise(async function _applyPromise(resolve,reject){
 				try{
 					var data=await func.apply(callAs,args);
 					resolve(data);
@@ -109,7 +111,7 @@ module.exports=function export_pX({_log,vX}){
 	*
 	* @return function
 	*/
-	function wrapFuncInPromise(func,callAs){
+	function createPromiseFunc(func,callAs){
 		vX.checkType('function',func);
 		return (function(...args){
 			try{
@@ -144,12 +146,17 @@ module.exports=function export_pX({_log,vX}){
 	*										from @promises) and 'all' (array or arrays [bool, value]). If all @promises resolve
 	*										this resolve with an array of those values.
 	*/
-	function awaitAllPromises(promises,options=[]){
+	function awaitAllPromises(promises,options=[],...opts){
 
 		_log.makeEntry('note',"TODO: replace call to awaitAllPromises() with groupPromises()")
 			.changeWhere(1).highlight('blue');
 
-		vX.checkTypes(['array','array'],[promises,options]);
+		vX.checkType('array',promises);
+		if(!Array.isArray(options)){
+			opts.unshift(options);
+			options=opts;
+		}
+
 
 		var anyErrors=false;
 
@@ -217,7 +224,7 @@ module.exports=function export_pX({_log,vX}){
 
 				//If any ^^ rejected, set an error that says so 
 				if(retObj.rejected.length && !retObj.err) //don't overwrite timeout err set vv
-					retObj.err='The following promises rejected: '+Object.keys(retObj.rejected).join(',');
+					retObj.err=(retObj.rejected.length+' promises rejected, those with index: '+Object.keys(retObj.rejected).join(','));
 
 
 				//To enable the functionality of 'flatten' option, add a flag on both object and arrays ^^
@@ -611,6 +618,24 @@ module.exports=function export_pX({_log,vX}){
 			data=>{callback(null,data); return data}
 			,err=>{callback(err); return Promise.reject(err)}
 		);
+	}
+
+
+
+	/*
+	* Call an async function which is expecting a callback as last argument, returning a 
+	* promise instead
+	*
+	* @param function func
+	* @opt any ...args
+	*
+	* @return Promise(any,err);
+	*/
+	function promisifyCallback(func,...args){
+		var {callback,promise}=exposedPromise();
+		args.push(callback);
+		func.apply(this,args)
+		return promise;
 	}
 
 

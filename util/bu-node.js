@@ -16,7 +16,7 @@
 
 module.exports=function exportBetterUtil(dep){
 
-	const cX=require('./util.common.js')(dep);
+	const cX=require('./bu-common.js')(dep);
 	 //After ^ we know v exists
 	const BetterEvents = dep.BetterEvents
     const BetterLog = dep.BetterLog

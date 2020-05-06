@@ -318,22 +318,23 @@ module.exports=function export_oX({_log,vX}){
 	* Get specific keys from an object, returning a new object
 	*
 	* @param object obj
-	* @param mixed 	keys 			A single key, an array of keys, or a function to validate keys
+	* @param mixed 	filter 			A single key, an array of keys, or a function to validate keys
 	* @param bool excludeMissing 	If true, keys that are not found on obj are not included on returned object. Else
 	*								the returned object will have that key with value undefined
 	* 
 	* @throws TypeError
 	* @return object
 	*/
-	function subObj(obj,keys, excludeMissing=false){
-		var types=vX.checkTypes([['array','object'],['string','number','array','function']],[obj,keys])
+	function subObj(obj,filter, excludeMissing=false){
+		var types=vX.checkTypes([['array','object'],['string','number','array','function']],[obj,filter])
 
 		if(types[1]=='function'){
-			keys=Object.entries(obj).filter(keyvalue=>keys(keyvalue[0],keyvalue[1])).map(keyvalue=>keyvalue[0]);
+			var keys=Object.entries(obj).filter(keyvalue=>filter(keyvalue[0],keyvalue[1])).map(keyvalue=>keyvalue[0]);
 			excludeMissing=false; //nothing to exclude
 		}else if(types[1]!='array'){
-			return obj[keys];
-		}
+			return obj[filter];
+		}else
+			keys=filter
 
 		var rObj={};
 		if(excludeMissing){
@@ -348,13 +349,13 @@ module.exports=function export_oX({_log,vX}){
 		return rObj;
 	}
 
-	function extract(obj,keys, excludeMissing){
-		var data=subObj(obj,keys,excludeMissing);
+	function extract(obj,filter, excludeMissing){
+		var data=subObj(obj,filter,excludeMissing);
 
-		if(Array.isArray(keys)||typeof keys=='function')
+		if(Array.isArray(filter)||typeof filter=='function')
 			Object.keys(data).forEach(key=>delete obj[key]);
 		else
-			delete obj[keys];
+			delete obj[filter];
 
 		return data;
 	}
@@ -389,21 +390,43 @@ module.exports=function export_oX({_log,vX}){
 	}
 
 
-
+	/*
+	* Check if a nested prop exists on an object
+	*
+	* @throws <ble TypeError>
+	*
+	* @return boolean
+	*/
+	function nestedHas(obj,keypath){
+		try{
+			return typeof nestedGet(obj,keypath)!='undefined'
+		}catch(err){
+			switch(err.code){
+				case 'TypeError':
+					throw err;
+				case 'EFAULT':
+					return false;
+				default:
+					log.throwCode("BUGBUG",'nestedGet() threw an unexpected error:',err);
+			}
+		}
+	}
 
 
 	/*
 	* Get a nested child from a multi-level object or array
 	*
-	* @param obj array|object
-	* @param keypath array 					Array of keys, each pointing to one level deeper. NOTE: this array will be altered
+	* @param array|object obj
+	* @param array keypath 					Array of keys, each pointing to one level deeper. NOTE: this array will be altered
 	*											by this function, containing any remaining keys after recursion has happened
 	*											to the available depth
 	* @param bool returnLastObject 			Default false => if a nested property doesn't exist, undefined will be returned. 
 	*											true=>the last existing object will be returned and the keypath reflects
 	*											the remaining keys
 
-	* @throws TypeError 					If either params ^ are wrong, or if [there is a non-object along keypath]
+	* @throws <ble TypeError> 				
+	* @throws <ble EFAULT> 		If there is a non-object along keypath
+	*
 	* @return mixed|[mixed,false|array]  	The requested value, or @see $returnLastObject
 	*/
 	function nestedGet(obj,keypath,returnLastObject=false){
@@ -415,7 +438,7 @@ module.exports=function export_oX({_log,vX}){
 			//Starting this loop means we're trying to go down one level...
 			if(typeof subobj!='object')
 				//...having a non-object means that's impossible, so throw an error
-				_log.throw(`Cannot get nested value, non-object @ ${address.join('.')}:`,subobj, obj);
+				_log.throwCode('EFAULT',`Cannot get nested value, non-object @ ${address.join('.')}:`,subobj, obj);
 
 			else if(!subobj.hasOwnProperty(keypath[0])){
 				//...having nothing also means that's impossible, but here we offer an option, see arg #3
@@ -426,7 +449,7 @@ module.exports=function export_oX({_log,vX}){
 					return undefined;
 			}
 
-			//Finally, there is a step down, go to it and restart loop
+			//We've now confirmed there's one more step available, go there and restart loop
 			subobj=subobj[keypath[0]];
 			address.push(keypath.shift());
 			// _log.debug(address.join('.'),subobj)
