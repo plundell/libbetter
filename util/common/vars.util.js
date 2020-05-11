@@ -33,7 +33,7 @@ module.exports=function export_vX({varType,logVar,_log}){
 		,'stringifySafe':stringifySafe
 		,'copy':copy
 		,'instanceOf':instanceOf
-		,stripComments
+		,stripFullLineComments
 	};
 
 
@@ -514,72 +514,81 @@ module.exports=function export_vX({varType,logVar,_log}){
 	* @return mixed
 	*/
 	function forceType(expectedType,value){
-		checkType('string',expectedType);
-		var gotType=varType(value);
-		switch(expectedType){
-			case gotType:
-				return value;
-			case 'undefined':
-			case 'null':
-				//If we got the string 'undefined', return undefined etc
-				if(typeof value=='string' && value==expectedType)
-					return value=='null' ? null : undefined;
+		if(checkType(['string','array'],expectedType)=='array'){
+			var value2;
+			if(expectedType.find(type=>{try{value2=forceType(type,value);return true;}catch(err){return false;}})){
+				return value2;
+			}
+		}else{
 
-				//If we got any empty value, return undefined etc
-				if(empty(value))
-					return expectedType=='null' ? null : undefined;
+			var gotType=varType(value);
+			switch(expectedType){
+				case gotType:
+					return value;
+				case 'undefined':
+				case 'null':
+					//If we got the string 'undefined', return undefined etc
+					if(typeof value=='string' && value==expectedType)
+						return value=='null' ? null : undefined;
 
-				break;
-			case 'boolean':
-				switch(value){
-					case 'true':
-					case 'TRUE':
-						return true;
-					case 'false':
-					case 'FALSE':
-						return false;
-					default:
-						return value ? true : false;
-				}
-			case 'number':
-				var num=Number(value); //this will convert booleans and strings, but not null, undefined etc...
-				if(!isNaN(num))
-					return num;
-				//If we didn't make a number, throw at bottom...
+					//If we got any empty value, return undefined etc
+					if(empty(value))
+						return expectedType=='null' ? null : undefined;
 
-			case 'string':
-				if(gotType=='array'||gotType=='object')
-					return tryJsonStringify(value);
+					break;
+				case 'boolean':
+					switch(value){
+						case 'true':
+						case 'TRUE':
+							return true;
+						case 'false':
+						case 'FALSE':
+							return false;
+						default:
+							return value ? true : false;
+					}
+				case 'number':
+					var num=Number(value); //this will convert booleans and strings, but not null, undefined etc...
+					if(!isNaN(num))
+						return num;
+					//If we didn't make a number, throw at bottom...
 
-				return String(value);
-			case 'array':
-				//turn objects with numerical keys into arrays... 
-				if(gotType=='object'){
-					if(Object.keys(value).every(Number.isInteger))
-						return Object.values(value);
-					else
-						break; //any other type of object is bad
-				}
-				//don't break so we can try for json vv
-			case 'object':
-				let x=tryJsonParse(value);
-				if(varType(x)==expectedType)
-					return x
-				
-				//Any other scenario is bad
-				break;
-				
-			case 'promise':
-				return Promise.resolve(value);
-			case 'error':
-				return new Error(String(value));
-			case 'function':
-				throw new Error("Cannot force "+gotType+" to be a function, noone can...");
+				case 'string':
+					if(gotType=='array'||gotType=='object')
+						return tryJsonStringify(value);
 
-			default:
-				throw new Error('Arg #1 should be a return value of helper.varType(), got: '+expectedType);
+					return String(value);
+				case 'array':
+					//turn objects with numerical keys into arrays... 
+					if(gotType=='object'){
+						if(Object.keys(value).every(Number.isInteger))
+							return Object.values(value);
+						else
+							break; //any other type of object is bad
+					}
+					//don't break so we can try for json vv
+				case 'object':
+				// return JSON.parse(value)
+					let x=tryJsonParse(value,true);
+					if(checkType(expectedType,x,true))
+						return x
+					
+					//Any other scenario is bad
+					break;
+					
+				case 'promise':
+					return Promise.resolve(value);
+				case 'error':
+					return new Error(String(value));
+				case 'function':
+					break;
+
+				default:
+					_log.throwCode("BUGBUG","BetterUtil.forceType() expected arg #1 to be a return value of BetterUtil.varType(), got:",expectedType);
+			}
 		}
-		throw new TypeError("Expected "+expectedType+", got "+logVar(value));
+		//If we're still running, throw a TypeError
+		_log.throwType(expectedType,value);
 	}
 
 
@@ -595,37 +604,54 @@ module.exports=function export_vX({varType,logVar,_log}){
 
 							 
 	function tryJsonParse(x, onlyReturnObject=false){
-		if(typeof x=='object')
+		if(x && typeof x=='object')
 			return x;
 
-		try{
-			return JSON.parse(x);
-		} catch(e){}
-
-
-
 		if(typeof x=='string'){
+			var err;
+			try{
+				return JSON.parse(x.trim());
+			} catch(e){err=e}
+
+
+
 			//Try removing comments, and if something changes take that as a sign and run this
 			//function again
-			var stripped=stripComments(x);
+			var stripped=stripFullLineComments(x);
 			if(stripped!=x){
 				if(stripped==''){
-					_log.note("Was the whole string a comment? Because BetterUtil.stripComments() thought it was:",x);
+					_log.note("Was the whole string a comment? Because BetterUtil.stripFullLineComments() thought it was:",x,String(err));
 				}else{
+					_log.debug("Removed comments from string and trying again");
 					return tryJsonParse(stripped);
 				}
 			}
 
-			if(x.includes(':')){ 
-				let wrapper=x.substr(0,1)+x.substr(-1); //NOTE substring() and substr() don't work the same!
-				if(wrapper=='{}'||wrapper=='[]'){
-					var warn=_log.makeEntry('warn',"This is probably a poorly formated JSON string:",x);
+			//At this point we know we're going to fail, the question is just what we log and what we return
+
+
+//STOPSTOP 2020-05-08: why is the whole string being printed and not trimmed?!?!
+
+
+
+			let xx=x.trim(), wrapper=xx.substr(0,1)+xx.substr(-1); //NOTE substring() and substr() don't work the same!
+			if(wrapper=='{}'||wrapper=='[]'){
+				var warn=_log.makeEntry('warn',"This is probably a poorly formated JSON obj/arr:");
+				let e=String(err),p=e.lastIndexOf(' '),pos=Number(e.substr(p));
+				if(!isNaN(pos)){
+					warn.highlightBadCode(x,pos);
+				}else{
+					warn.addExtra(x,err);
 				}
 			}
 		}
 		
 		if(onlyReturnObject && (!x || typeof x !='object')){
-			if(warn){warn.exec();}else{_log.debug('Not a JSON string: ', x);} //don't debug if we've already warned
+			if(warn)
+				warn.exec();
+			else
+				_log.debug('Not a JSON string:',x,String(err)); //don't debug if we've already warned
+			
 			return undefined;
 		} else {
 			return x
@@ -734,10 +760,29 @@ module.exports=function export_vX({varType,logVar,_log}){
 
 
 
-	var stripper=new RegExp(/(\/\*[\w\'\s\r\n\*]*\*\/)|(\/\/[\w\s\']*)|(\<![\-\-\s\w\>\/]*\>)/mg)
-	function stripComments(str){
+	var stripper=new RegExp(/^\s*\/\/.*$/mg)
+	var remover=new RegExp(/^\s*\/\/.*$/m)
+	function stripFullLineComments(str){
 		checkType('string',str);
-		return str.replace(stripper,'');
+
+		//For logging only, we first match ALL occurences...
+		let m=str.match(stripper);
+		if(m){
+			m=Object.values(m);
+			let entry=_log.makeEntry(`Found ${m.length} comments in:`,logVar(str,50));
+			m.forEach(comment=>{
+				entry.addHandling("Removing comment:",comment)
+				//...but then we use the other regexp to remove one at a time. Slow but logs good!
+				str=str.replace(remover,'');
+			})
+
+			str=str.trim(); 
+				//^We don't trim outside this if-block so $str doesn't change if there are no comments, see tryJsonParse() and
+				//try to figure our why ;)
+		}else{
+			_log.trace("No comments in:",logVar(str,50));
+		}
+		return str;
 	}
 
 

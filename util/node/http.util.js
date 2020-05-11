@@ -339,6 +339,7 @@ module.exports=function export_httpX({BetterLog,cX,fsX,pump,...dep}){
 	* @return any 				The $data parsed into an object or array
 	*/
 	function parseMessageData(message, data){
+		data=cX.trim(data);
 		switch(mimeLookup[message.headers['content-type']]){
 			case 'json':
 				return cX.tryJsonParse(data,true);
@@ -346,7 +347,7 @@ module.exports=function export_httpX({BetterLog,cX,fsX,pump,...dep}){
     			//return cX.queryStrToObj(data);
     			return querystring.parse(data)
 			default:
-				log.debug("Not parsing "+message.headers['content-type']);
+				log.debug("Not parsing content-type: "+message.headers['content-type']);
 				return data;
 		}
 	}

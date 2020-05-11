@@ -1503,168 +1503,32 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 
 	}
 
-	/*
-	* @constructor 	This item saves and reads primitive/complex object to/from a file
-	*
-	* @param string 	filepath 		
-	* @param string 	*restrictType 	If given, values will be checked before store/after read so they match this
-	* @param boolean 	*saveAsJson 	Default false. If true value will be stored as json, else as delimited lines
-	*/
-	function StoredItem(filepath,restrictType,saveAsJson=false){
-		this.filepath=cleanPathString(filepath);
-
-
-		//Make sure the path is a reasonable candidate
-		this.stat=statSync(this.filepath);
-		if(this.stat.exists && this.stat.type!='file')
-			log.makeError(`Path is a ${this.stat.type}, not a file.`).throw('ENOTFILE')
-
-		if(!this.stat.read && !this.stat.write)
-			log.makeError(getEaccessLogStr(this.stat)).throw('EACCES')
-
-		function getDefault(){
-			switch(restrictType){
-				case undefined:
-				case 'undefined':
-					return undefined;
-				case 'null':
-					return null;
-				case 'string': 
-					return '';
-				case 'number': 
-					return 0;
-				case 'array': 
-					return [];
-				case 'object': 
-					return {};
-			}
-		}
-
-
-		/*
-		* Write data to a file
-		*
-		* @param string|number|bool|array|object 	data
-		*
-		* @throw TypeError
-		*
-		* @return Promise(void,err)
-		*/
-		this.write=function(data){
-			try{
-				//When writing, throw on type that doesn't match restricted...
-				var t=(restrictType ? cX.checkType(restrictType,data) : cX.varType(data));
-			}catch(err){
-				return Promise.reject(err);
-			}
-
-			return prepareWritableFile(this.filepath,true) //true=overwrite
-				.then(()=>{
-					var str;
-					if(saveAsJson){
-						str=JSON.stringify(data)
-					}else{
-						switch(t){
-							case 'string':
-							case 'number':
-								str=cX.trim(String(data));
-								break;
-							case 'array':
-								str=data.join('\n');
-								break;
-							case 'object':
-								str=cX.objectToLines(data,'=');
-								break;
-							case 'boolean':
-								str=(data ? 'true' : 'false');
-								break;
-							default:
-								throw new TypeError("Cannot store or read vartype:"+t);
-						}
-					}
-					
-					//Write async to file, returning a promise that resolves when writing is finished
-					var {promise,callback}=cX.exposedPromise()
-					fs.writeFile(this.filepath, str,callback);
-					return promise;
-				})
-
-
-		}
-
-
-		/*
-		* Read data from a file, parsing it into an object/array/string etc
-		*
-		* @return mixed
-		* @sync
-		*/
-		this.read=function(){
-			var str=readFile(this.filepath); //loggs if not exists
-
-			//When reading, return 'empty' var if data doesn't match restricted...
-			if(!str)
-				return getDefault();
-			
-
-
-			if(saveAsJson){
-				var data=cX.tryJsonParse(str);
-				return (!data ? getDefault() : data);
-			}else{
-				switch(restrictType){
-					case undefined: //we don't know how to parse is so just return the data as is
-					case 'string':
-						return str;
-					case 'number':
-						return Number(str);
-					case 'array':
-						return str.split('\n');
-					case 'object':
-						return cX.strToObj(str,'=');
-					case 'boolean':
-						return str==='true';
-					default:
-						throw new TypeError("Cannot store or read vartype: "+t);
-				}
-			}
-
-		}
-
-
-		/*
-		* Delete the underlying file
-		* @return void
-		* @sync
-		*/
-		this.unlink=function(){
-			if(exists(this.filepath))
-				fs.unlinkSync(this.filepath);
-			return;
-		}
-	}
-
+	
 
 	/*
 	* Creates a smart obj/arr which, when written to it automatically writes to HDD
 	*
 	* @param string filepath
-	* @param string type 		Either 'object' or 'array'
-	* @param object options 	Any additional options used to create smarty
+	* @param function constructor 	Either SmartObject() or SmartArray()
+	* @param object options 		Any additional options used to create smarty
 	*
 	* @return <SmartArr>|<SmartObject>
 	*/
 	function createStoredSmarty(filepath,constructor,options={}){
         cX.checkTypes(['string','function','object'],[filepath,constructor,options]);
+        var type=(constructor.name=='SmartArray' ? 'array' : 
+        	constructor.name=='SmartObject'?'object':log.throwCode('EINVAL','Expected arg#2 to be smart constructor, got:',constructor));
 
-        //Create smarty
-        var type=constructor.name=='SmartArray' ? 'array':'object'
+        //Add some options
         var d={delayedSnapshot:1000},c;
+        //2020-05-08: ^that we need for storage purposes, but vv we should probably not mess with, just let the defaults rule...
         if(type=='array'){
             options=Object.assign(d,{moveEvent:true},options);
         }else{
             options=Object.assign(d,{children:'complex'},options);
         }
+
+
         var smarty=new constructor(options)
 
         //Store and return smarty
@@ -1680,14 +1544,13 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
     	if(!smarty.hasSnapshot())
     		smarty.setupSnapshot(1000);
 
-
-    	//If children are primitive then we store as key=value, else as json
-        var saveAsJson=(smarty._private.options.children=='primitive'?false:true);
-        var type=(name=='<SmartArray>' ? 'array':'object');
-
-
         //Create a stored item
-        var storage=new StoredItem(filepath,type,saveAsJson);
+        var storage=new StoredItem(
+        	filepath
+        	,(name=='<SmartArray>' ? 'array':'object')
+        	,(smarty._private.options.children!='primitive' ? 'json' : undefined)
+        	,smarty._log
+        );
 
         //Define a couple of extra methods on the smarty
         /*
@@ -1741,6 +1604,167 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 
         return smarty;
     }
+
+
+
+
+
+
+/*
+	* @constructor 	This item saves and reads primitive/complex object to/from a file
+	*
+	* @param string 	filepath 		
+	* @opt string 		restrictType 	@see varType(). If passed, values will be checked before store/after read so they match this
+	* @opt flag     	'json' 			If passed value will be stored as json, else as delimited lines
+	* @opt <BetterLog> 	_log 			If omitted the filesystem log will be used
+	*/
+	function StoredItem(filepath,...options){
+		this.filepath=cleanPathString(filepath);
+
+		//Get args 2,3 and 4 in any order
+		var j=options.indexOf('json')
+			,saveAsJson=j>-1?options.splice(j,1):false //first extract 'json'...
+			,restrictType=options.find(arg=>typeof arg=='string') //...then the first string should be the type
+			,_log=options.find(arg=>arg && arg._isBetterLog)||log 
+		;
+
+
+		//Make sure the path is a reasonable candidate
+		this.stat=statSync(this.filepath);
+		if(this.stat.exists && this.stat.type!='file')
+			_log.makeError(`Path is a ${this.stat.type}, not a file.`).throw('ENOTFILE')
+
+		if(!this.stat.read && !this.stat.write)
+			_log.makeError(getEaccessLogStr(this.stat)).throw('EACCES')
+
+		function getEmpty(){
+			switch(restrictType){
+				case 'string': 
+					return '';
+				case 'number': 
+					return 0;
+				case 'array': 
+					return [];
+				case 'object': 
+					return {};
+				default:
+					return undefined;
+			}
+		}
+
+
+		/*
+		* Write data to a file
+		*
+		* @param string|number|bool|array|object 	data
+		*
+		* @throw TypeError
+		*
+		* @return Promise(void,err)
+		*/
+		this.write=function(data){
+			try{
+				//When writing, throw on type that doesn't match restricted...
+				var t=(restrictType ? cX.checkType(restrictType,data) : cX.varType(data));
+			}catch(err){
+				return _log.makeError("Could not write data:",data,err).reject();
+			}
+
+			return prepareWritableFile(this.filepath,true) //true=overwrite
+				.then(()=>{
+					var str;
+					if(saveAsJson){
+						str=JSON.stringify(data)
+					}else{
+						switch(t){
+							case 'string':
+							case 'number':
+								str=cX.trim(String(data));
+								break;
+							case 'array':
+								str=data.join('\n');
+								break;
+							case 'object':
+								str=cX.objectToLines(data,'=');
+								break;
+							case 'boolean':
+								str=(data ? 'true' : 'false');
+								break;
+							default:
+								_log.throwCode('EINVAL','Cannot store vartype: '+t);
+						}
+					}
+					
+					//Write async to file, returning a promise that resolves when writing is finished
+					var {promise,callback}=cX.exposedPromise()
+					fs.writeFile(this.filepath, str,callback);
+					return promise;
+				})
+
+
+		}
+
+
+		/*
+		* Read data from a file, parsing it into an object/array/string etc
+		*
+		* @return mixed
+		* @sync
+		*/
+		this.read=function(){
+			var str=readFile(this.filepath); //loggs if not exists
+
+			//If we didn't get anything, return an empty item of the $restrictType 
+			if(!str){
+				_log.trace("File was empty.",this.filepath);
+				return getEmpty();
+			}
+
+			//Parse whatever format the data was stored in
+			var data;
+			if(saveAsJson){
+				data=cX.tryJsonParse(str);
+			}else{
+				switch(restrictType){
+					case 'array':
+						data=str.split('\n'); break;
+					case 'object':
+						data=cX.linesToObj(str,'=');break;
+					default:
+						data=str;
+				}
+			}
+
+			//Force the restricted type
+			try{
+				return cX.forceType(restrictType,data);
+			}catch(err){
+				_log.makeError(`Expected file ${this.filepath} to contain ${restrictType}, but found:`,str);
+			}
+
+		}
+
+
+		/*
+		* Delete the underlying file
+		* @return void
+		* @sync
+		*/
+		this.unlink=function(){
+			if(exists(this.filepath))
+				fs.unlinkSync(this.filepath);
+			return;
+		}
+	}
+
+
+
+
+
+
+
+
+
 
 
 

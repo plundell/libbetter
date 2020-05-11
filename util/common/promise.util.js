@@ -77,7 +77,7 @@ module.exports=function export_pX({_log,vX}){
 	/*
 	* Call a function and return a promise that resolves/rejects with result
 	*/
-	function applyPromise(func,callAs,args){
+	function applyPromise(func,args,callAs){
 		try{
 			vX.checkType('function',func);
 			

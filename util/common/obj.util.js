@@ -18,6 +18,7 @@ module.exports=function export_oX({_log,vX}){
 		,'splitArrayItemsToObject':splitArrayItemsToObject
 		,'indentStringToObject':indentStringToObject
 		,'objectToLines':objectToLines
+		,linesToObj
 		,flattenObject
 		,'hasOwnProperties':hasOwnProperties
 		,'keysToLower':keysToLower
@@ -212,9 +213,29 @@ module.exports=function export_oX({_log,vX}){
 	*
 	* @return string
 	*/
-	function objectToLines(obj,delimiter){
+	function objectToLines(obj,delimiter='='){
+		vX.checkTypes(['object','string'],[obj,delimiter])
 		return Object.entries(obj).map(([key,value])=>key+delimiter+value).join('\n');
 	}
+
+
+	/*
+	* Turn a delimited string into an object, eg:
+	* 		key1=value1\nkey2=value2 => {key1:value1,key2:value2}
+	*
+	* @param string str 		A string output by objectToLines
+	* @param string delimiter 	Delimiter to use between key and value, eg '='
+	*
+	* @return object
+	*/
+	function linesToObj(str,delimiter='='){
+		vX.checkTypes(['string','string'],[str,delimiter]);
+		var obj={};
+		str.split('\n').forEach(line=>{line=line.split('=');obj[line[0]]=line[1]});
+		return obj
+	}
+
+
 
 	/*
 	* @param object obj 	From    {type:{shape:'round',color:'red'},weight:4}
