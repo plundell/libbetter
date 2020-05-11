@@ -9,6 +9,7 @@
   ,"author": "plundell"
   ,"license": "MIT"
   ,"main":"./export-node.js"
+  ,"browser":"./export-browser.js"
   ,"homepage": "https://github.com/plundell/libbetter"
   ,"repository": {
     "type": "git"
