@@ -669,8 +669,8 @@ module.exports=function export_elemX({cX,_log}){
 		date.type='date'
 		fieldset.appendChild(date);
 
-		let date=document.createElement('input');
-		date.type='time'
+		let time=document.createElement('input');
+		time.type='time'
 		fieldset.appendChild(time);
 
 		//Create getter/setter on the fieldset
