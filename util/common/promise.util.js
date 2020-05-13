@@ -16,6 +16,7 @@ module.exports=function export_pX({_log,vX}){
 		,'toPromise':toPromise
 		,'applyPromise':applyPromise
 		,'createPromiseFunc':createPromiseFunc
+		,promisify //alias for ^
 		,'awaitAllPromises':awaitAllPromises
 		,'firstResolved':firstResolved
 		,'InspectablePromise':InspectablePromise
@@ -57,12 +58,12 @@ module.exports=function export_pX({_log,vX}){
 	/*
 	* Turn smth into a promise. 
 	*
-	* @param function|<Promise>|any x 	NOTE: if function, it will be called
+	* @param function|<Promise>|any x 	NOTE: if function, it will be called immediately
 	*
 	* @return <Promise> 	Depending on what's passed in, this will return:
 	*		<Promise> --> same promsie
-	*		function --> executes function inside a promise, then returns the promise
-	* 		any --> same variable, wrapped in resolved promise
+	*		function  --> executes function inside a promise, then returns the promise
+	* 		any       --> same variable, wrapped in resolved promise
 	*/
 	function toPromise(x){
 		if(x instanceof Promise)
@@ -107,7 +108,7 @@ module.exports=function export_pX({_log,vX}){
 	* NOTE: this does NOT call the function, only wraps it for future calls
 	*
 	* @param function func
-	* @param object callAs
+	* @opt object callAs
 	*
 	* @return function
 	*/
@@ -115,12 +116,13 @@ module.exports=function export_pX({_log,vX}){
 		vX.checkType('function',func);
 		return (function(...args){
 			try{
-				Promise.resolve(func.apply(callAs||this||null,args))
+				Promise.resolve(func.apply(callAs||this,args))
 			}catch(err){
 				return Promise.reject(err);
 			}
 		})
 	}
+	var promisify=createPromiseFunc
 
 
 

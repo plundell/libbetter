@@ -17,7 +17,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	const log=new BetterLog('fsX');
 
 
-	//2019-12-09: Used by cleanPathString()
+	//2019-12-09: Used by resolvePath()
 	const cleaned={};
 
 	/*
@@ -64,7 +64,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 		,'accessPromise':accessPromise
 		,'checkReadWrite':checkReadWrite
 		,'accessSync':accessSync
-		,'cleanPathString':cleanPathString
+		,'resolvePath':resolvePath
 		,'cleanFilename':cleanFilename
 		,'flushFifo':flushFifo
 		,'createFifo':createFifo
@@ -125,7 +125,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	* @not_logged
 	*/
 	function exists(path,type,thrw=false){
-		path=cleanPathString(path); //throws error on bad value
+		path=resolvePath(path); //throws error on bad value
 
 		var err;
 		try{
@@ -148,7 +148,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	*/
 	function existsPromise(path,type,rej=false){
 		return new Promise((resolve,reject)=>{
-			path=cleanPathString(path); //throws error on bad value
+			path=resolvePath(path); //throws error on bad value
 
 			fs.access(path,function existsPromise_accessCallback(err){
 				try{
@@ -253,7 +253,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 				if(await existsPromise(root,'dir')==false)
 					throw "Directory doesn't exist";
 
-				root=cleanPathString(root);
+				root=resolvePath(root);
 				var rand=(Math.random()*10000000);
 				while(await fsX.existsPromise(`${root}/${rand}`,'file')){
 					rand+=1;
@@ -291,7 +291,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	
 	function inodeType(statsOrPath){
 
-		var stats=(typeof statsOrPath=='string' ? fs.statSync(cleanPathString(statsOrPath)) : statsOrPath);
+		var stats=(typeof statsOrPath=='string' ? fs.statSync(resolvePath(statsOrPath)) : statsOrPath);
 
 		if(stats.isFile()) return 'file';
 		if(stats.isDirectory()) return 'dir';
@@ -314,7 +314,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	* @return object
 	*/
 	function statCommon(path){
-		var fullPath=cleanPathString(path)  //throws error on fail
+		var fullPath=resolvePath(path)  //throws error on fail
 
 		var info={original:path, path:_p.parse(fullPath), exists:null, native:null, type:null}
 		info.path.full=fullPath
@@ -411,7 +411,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	*		}
 	*	}
 	*
-	* @throw @see cleanPathString()
+	* @throw @see resolvePath()
 	*
 	* @return object 	Object with less props than stat() vv
 	*/
@@ -496,7 +496,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	*/
 	function findParentSync(path){
 
-		path=cleanPathString(path); //throw on bad path
+		path=resolvePath(path); //throw on bad path
 
 		var tree=path.split(_p.sep); //first item will be empty (ie. nothing before root slash)
 		
@@ -522,7 +522,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	function findParentPromise(path){
 
 		return new Promise(async function(resolve,reject){
-			path=cleanPathString(path); //throw on bad path
+			path=resolvePath(path); //throw on bad path
 
 			var tree=path.split(_p.sep); //first item will be empty (ie. nothing before root slash)
 			
@@ -559,8 +559,8 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	function accessPromise(path, mode='F'){
 		
 		return new Promise((resolve,reject)=>{
-			// log.info("Checking "+type+" for: ",cleanPathString(path));
-			fs.access(cleanPathString(path), fs.constants[mode.toUpperCase()+'_OK'], err=>{
+			// log.info("Checking "+type+" for: ",resolvePath(path));
+			fs.access(resolvePath(path), fs.constants[mode.toUpperCase()+'_OK'], err=>{
 				err?reject(err.code):resolve(null);
 			});
 		});
@@ -635,7 +635,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	*/
 	function accessSync(path, type='F'){
 		try{
-			fs.accessSync(cleanPathString(path), fs.constants[type.toUpperCase()+'_OK']); //throws on fail, undefined on success
+			fs.accessSync(resolvePath(path), fs.constants[type.toUpperCase()+'_OK']); //throws on fail, undefined on success
 			return null;
 		}catch(err){
 			return err.code
@@ -671,16 +671,22 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 
 
 	/*
-	* Make sure a string is a path, and if it's relative, append the working dir
+	* Make sure a string is a path, and if it's relative, append the working dir or an optionally passed in one
 	*
-	* @param string path 	The path to check
+	* @param string path 	    The path to check
+	* @opt flag 'no-undefined'  If passed, if the path includes the STRING 'undefined' ANYWHERE an error will be thrown
+	* @opt string cwd 			If passed AND $path is relative, then this will be used as cwd instead of cwd of process
 	*
 	* @throws <BLE TypeError> 	If path is not a string
 	* @return string 			The resolved path
 	*/
 	
-	function cleanPathString(path,allowUndefined=false){
+	function resolvePath(path,...options){
 		cX.checkType('string',path);
+
+		//Get options 
+		noUndefined=cX.extractItem(options,'no-undefined')||false;
+		let cwd=cX.getFirstOfType(options,'string')||process.cwd();
 		
 		//If already cleaned, don't do it again;
 		// console.log(cleaned);
@@ -696,7 +702,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 		//Since there is a larger risk that someone built a filepath without realizing that one of the
 		//components was undefined (which turned into the string 'undefined' and got included as a dir 
 		//or file), than that something is actually named 'undefined', we throw unless explicitly told not to
-		if(!allowUndefined && path.includes('undefined'))
+		if(noUndefined && path.includes('undefined'))
 			log.makeError("The path included substring 'undefined':",path)
 				.addHandling("If 'undefined' should be allowed, please call this function with arg #2==true.")
 				.throw();
@@ -708,6 +714,11 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 
 		return path
 	}
+
+
+
+
+
 
 	/*
 	* Clean a filename from any bad characters so it can be written to filesystem without quotes
@@ -813,7 +824,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	function mkdir(path,mode=null){
 		log.traceFunc(arguments, 'mkdir')
 
-		path=cleanPathString(path); //throws error on bad value
+		path=resolvePath(path); //throws error on bad value
 
 		//Check if it already exists and if it's a dir
 		if(exists(path,'dir')){ //throws if exists but not a dir
@@ -1133,7 +1144,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 			try{
 				if(ipath)
 					log.makeError("BUGBUG: ls returned empty path, index "+i,list);
-				ipath=cleanPathString(ipath,true); //true => paths can contain string 'undefined'
+				ipath=resolvePath(ipath,true); //true => paths can contain string 'undefined'
 				details.push(statSync(ipath));
 				i++
 			}catch(err){ 
@@ -1431,7 +1442,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 		if(['full','lines','status','fd'].indexOf(mode)==-1)
 			log.throw('Bad value for arg #2, expected: full,status,fd, got: ',mode);
 
-		path=cleanPathString(path); //throws error on bad value
+		path=resolvePath(path); //throws error on bad value
 
 		return [path,mode];
 	}
@@ -1619,7 +1630,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	* @opt <BetterLog> 	_log 			If omitted the filesystem log will be used
 	*/
 	function StoredItem(filepath,...options){
-		this.filepath=cleanPathString(filepath);
+		this.filepath=resolvePath(filepath);
 
 		//Get args 2,3 and 4 in any order
 		var j=options.indexOf('json')
