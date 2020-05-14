@@ -35,6 +35,7 @@ module.exports=function export_stX({_log,vX}){
 		,dashToCamel
 		,randomString
 		,getUniqueString
+		,safeReplace
 	};
 
 
@@ -607,6 +608,23 @@ module.exports=function export_stX({_log,vX}){
 
 		//This is veeeeeeeeeeery unlikely...
 		_log.throw("Could not find unique string",arguments);
+	}
+
+	/*
+	* Safer version of $source.replace($remove,$add) 
+	*
+	* @param string source 	The text body which we want to alter
+	* @param string remove 	The part we want to remove
+	* @param string add 	The bit we want to insert in $remove's stead
+	*
+	* @return string 		The new altered string
+	*/
+	function safeReplace(source,remove,add){
+		vX.checkTypes(['string','string','string'],arguments);
+		let start=source.indexOf(remove)
+		    ,end=start+remove.length
+		; 
+		return source.substr(0,start)+add+source.substr(end);
 	}
 
 
