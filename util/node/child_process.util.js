@@ -112,7 +112,8 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 	*
 	* @params @see _execPrepare
 	*
-	* @return Promise(obj,obj) 		Resolves/reject with same object (see func body for keys)
+	* @return Promise(obj,<ble>) 		Resolves/reject with {stdout, stderr, duration, signal, code}. On reject this object
+	*									is instance of BetterLogEntry
 	* @access public
 	*/
 	function execFileInPromise(cmd,args,options){
@@ -129,19 +130,22 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 				try{
 					resolve(_execFileCallback(obj));
 				}catch(ble){
-					// console.log('REJECTING:',ble);
-					// console.log(typeof ble)
-					// console.log(ble.constructor.name)
-					// console.log(Object.keys(ble));
-					// console.log(JSON.stringify(ble));
-					reject(ble);
+					reject(ble); //NOTE: ble has props stdout, stderr, duration, signal
 				}
 			});
 		});
 	}
 
 
-
+	/**
+	* This function wraps around execFileSync() and returns an object
+	*
+	* @params @see _execPrepare
+	*
+	* @throw <ble> 			Also has props of @return
+	* @return object 		{stdout, stderr, duration, signal, code} 	
+	* @access public
+	*/
 	function execFileSync(cmd, args, options){
 		// log.highlight(log.logVar(Object.values(arguments),3000));
 		var obj=_execPrepare(cmd,args,options);
@@ -168,6 +172,10 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 	};
 
 
+	/*
+	* @throw ble
+	* @return object
+	*/
 	function _execFileCallback(obj) {
 		// console.log(obj);
 		//Make sure we have strings
@@ -175,7 +183,10 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 		obj.stderr=String((obj.stderr||'')).trim();
 		obj.duration=Date.now()-obj.start;
 
-		obj.error=obj.message||obj.error||null;
+		//Extract the error
+		var error=obj.message||obj.error||null;
+		delete obj.message;
+		delete obj.error;
 
 		obj.signal=obj.killSignal||obj.signal||null;
 		obj.code=obj.code||(obj.error?obj.error.code:null)||obj.status||null;
@@ -183,13 +194,15 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 		var stack=obj.stack;
 		delete obj.stack;
 
-	    if(!obj.error){
+	    if(!error){
 	    	return obj;
 
 	    }else{
+	    	//Ok, we're going to throw. We'll create a <ble>, but we'll assign the same props as $obj so
+	    	//you can use it just the same
 
 	    	//In case the error contains the stderr, remove it so we only have it in one place
-	    	var msg=obj.error.toString()
+	    	var msg=error.toString()
 	    		.replace(obj.stderr,'')
 	    		.trim()
 	    		.replace(/^Error: /,'')
@@ -212,11 +225,11 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 	    			msg=m+'. '+msg;
 	    	}
 	    	msg+='.'
-    		var ble=log.makeError(msg,obj.stderr).setStack(stack).changeWhere(1);
+    		var ble=log.makeError(msg,obj.stderr).setCode(obj.code).setStack(stack).changeWhere(1);
     		
     		Object.assign(ble,cX.subObj(obj,['stdout','stderr','duration','signal']))
 
-    		ble.throw(obj.code);
+    		throw ble;
 	    }
 
 	}

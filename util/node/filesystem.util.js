@@ -287,11 +287,12 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	*
 	* @return string
 	* @access public/exported
+	* @sync
 	*/
 	
 	function inodeType(statsOrPath){
 
-		var stats=(typeof statsOrPath=='string' ? fs.statSync(resolvePath(statsOrPath)) : statsOrPath);
+		var stats=(typeof statsOrPath=='string' ? fs.statSync(statsOrPath) : statsOrPath);
 
 		if(stats.isFile()) return 'file';
 		if(stats.isDirectory()) return 'dir';
@@ -674,8 +675,8 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	* Make sure a string is a path, and if it's relative, append the working dir or an optionally passed in one
 	*
 	* @param string path 	    The path to check
-	* @opt flag 'no-undefined'  If passed, if the path includes the STRING 'undefined' ANYWHERE an error will be thrown
 	* @opt string cwd 			If passed AND $path is relative, then this will be used as cwd instead of cwd of process
+	* @opt flag 'no-undefined'  If passed, if the path includes the STRING 'undefined' ANYWHERE an error will be thrown
 	*
 	* @throws <BLE TypeError> 	If path is not a string
 	* @return string 			The resolved path
@@ -685,8 +686,9 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 		cX.checkType('string',path);
 
 		//Get options 
-		noUndefined=cX.extractItem(options,'no-undefined')||false;
-		let cwd=cX.getFirstOfType(options,'string')||process.cwd();
+		var noUndefined=cX.extractItem(options,'no-undefined')
+			,cwd=cX.getFirstOfType(options,'string')
+		;
 		
 		//If already cleaned, don't do it again;
 		// console.log(cleaned);
@@ -695,7 +697,8 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 
 
 		if(path.substring(0,1)!='/')
-			path=process.cwd()+_p.sep+path;
+			path=_p.resolve(cwd||process.cwd(),path);
+		
 
 		path= _p.normalize(path)
 
@@ -1104,29 +1107,48 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 
 
 
+
 	/*
-	* Get contents of dir
+	* Get contents of dir or search for a pattern
 	*
-	* @param string path 		
-	* @param boolean fullPath 	Default false => return name.txt, if true=> /path/to/name.txt
+	* NOTE: Only works on unix systems that have 'ls' command
 	*
-	* @throw 
-	* @return array[string]	 	Array of file names in the folder, excl. the path
+	* @param string path 		Path or search pattern
+	* @opt boolean fullPath 	If ==true + $path is search pattern => /path/to/name.txt, else/default name.txt
+	*
+	* @throw <ble TypeError>
+	* @throw <ble ENOENT> 		If the path doesn't exist (does not apply to search patterns)
+	* @return array[string]	 	Array of filename/paths (see ^), or an empty array
 	* @sync
 	*/
-	function ls(path,fullPath=false){	
-		cX.checkType('string',path);
-		if(!exists(path,'dir'))
-			log.makeError("The path doesn't exist: "+path);
+	function ls(path,fullPath=false){
+		//Make sure we have a full path 
+		path=resolvePath(path);
+		var isSearchPattern=path.indexOf('*')>-1
 
+		try{
+			var obj=cpX.execFileSync('ls',[path]);
+			var list=obj.stdout.split('\n');
 
-		var arr=fs.readdirSync(path);
-		if(fullPath)
-			return arr.map(file=>(path+'/'+file).replace('//','/'));
-		else
-			return arr;
+			//Warn if it seems we've ls'd a file (we probably want to ls dirs)
+			if(list.length==1 && path.endsWith(list[0]) && inodeType(path)=='file'){
+				log.warn("You called ls on a single file, was that intentional?")
+			}
+
+			if(fullPath && !isSearchPattern){
+				//if a search pattern is use, 'ls' will naturally return the whole path...
+				list=list.map(_p.resolve(path,file));
+			}
+
+			return list;
+		}catch(obj){
+			if(!isSearchPattern){ //don't warn on search patterns
+				log.throwCode("ENOENT: The path doesn't exist:",path);
+			}
+			return [];
+		}
+
 	}
-
 
 
 	/*
