@@ -1128,25 +1128,26 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 
 		try{
 			var obj=cpX.execFileSync('ls',[path]);
-			var list=obj.stdout.split('\n');
-
-			//Warn if it seems we've ls'd a file (we probably want to ls dirs)
-			if(list.length==1 && path.endsWith(list[0]) && inodeType(path)=='file'){
-				log.warn("You called ls on a single file, was that intentional?")
-			}
-
-			if(fullPath && !isSearchPattern){
-				//if a search pattern is use, 'ls' will naturally return the whole path...
-				list=list.map(_p.resolve(path,file));
-			}
-
-			return list;
 		}catch(obj){
 			if(!isSearchPattern){ //don't warn on search patterns
-				log.throwCode("ENOENT: The path doesn't exist:",path);
+				log.throwCode("ENOENT",'No such file or directory:',path);
 			}
 			return [];
 		}
+
+		var list=obj.stdout.split('\n');
+
+		//Warn if it seems we've ls'd a file (we probably want to ls dirs)
+		if(list.length==1 && path.endsWith(list[0]) && inodeType(path)=='file'){
+			log.warn("You called ls on a single file, was that intentional?")
+		}
+
+		if(fullPath && !isSearchPattern){
+			//if a search pattern is use, 'ls' will naturally return the whole path, else we have to add it
+			list=list.map(file=>_p.resolve(path,file));
+		}
+
+		return list;
 
 	}
 
