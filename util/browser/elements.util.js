@@ -628,7 +628,7 @@ module.exports=function export_elemX({cX,_log}){
 		,'input:focus + .toggle-slider':'box-shadow: 0 0 1px #2196F3;'
 		,'input:checked + .toggle-slider:before':'-webkit-transform: translateX(1em);-ms-transform: translateX(1em);transform: translateX(1em);'
 	})
-	module.exports.toggleSliderCss=toggleSliderCss;
+	// _exports.toggleSliderCss=toggleSliderCss
 	createInput.toggle=function createToggle(){
 		//This is another special case where we'll need >1 elem so we wrap it in a fieldset. This also gives
 		//us the oppertunity to link the .value to the underlying .checked

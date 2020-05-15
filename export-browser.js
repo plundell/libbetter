@@ -19,4 +19,4 @@ import * as BetterEvents from "./events";
 import * as bu_exporter from "./util/bu-browser.js"; //browser version of utils...
 const BetterUtil=bu_exporter({BetterLog,BetterEvents}); 
 
-module.exports={BetterLog,BetterEvents,BetterUtil};
+export default {BetterLog,BetterEvents,BetterUtil};
