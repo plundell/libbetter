@@ -11,12 +11,13 @@
  */
 'use strict';
 
-import * as BetterLog from "./log";
+import BetterLog from "./log";
 BetterLog._env='browser';
 
-import * as BetterEvents from "./events";
+import BetterEvents from "./events";
+Object.defineProperty(BetterEvents.prototype,'_defaultEmitErrorHandler',{value:BetterLog._syslog.error});
 
-import * as bu_exporter from "./util/bu-browser.js"; //browser version of utils...
+import bu_exporter from "./util/bu-browser.js"; //browser version of utils...
 const BetterUtil=bu_exporter({BetterLog,BetterEvents}); 
 
 export default {BetterLog,BetterEvents,BetterUtil};
