@@ -83,13 +83,20 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 	* @return object 
 	*/
 	function _execPrepare(cmd,args=[],options={}){
-		let l=options.log;
-		if(l){
-			delete options.log;
-			if(l instanceof BetterLog)
-				log.debug(`cmd: ${cmd} ${args.join(' ')}`);
+		cX.checkTypes(['string','array','object'],[cmd,args,options]);
+
+		//Figure out which executable will run. Remember, node will use options.env.PATH if specified, in which
+		//case 'which' won't work since 'which' uses process.env.PATH
+		if(!options.PATH){
+			try{
+				cmd=cp.execFileSync('which', [cmd]).toString().trim();
+			}catch(err){
+				log.throwCode('ENOENT','No such executable found:',cmd,process.env);
+			}
 		}
-		return {
+
+		//Build the ret obj
+		var obj= {
 			options
 
 			//Any failed exec's, in order for the stack to show who called this method, we create one here 
@@ -100,6 +107,22 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 
 			,cmd:[cmd].concat(args).join(' ')
 		}
+
+		//Log depending on options
+		if(options.log && options.log._isLog){
+			options.log.info("About to run: "+obj.cmd);
+			delete options.log;
+		}else if(options.noLog){
+			delete options.noLog;
+		}else{
+			log.trace(obj.cmd);
+		}
+
+		//A few options are meant for use here, extract them from the options sent to exec
+		obj.localOptions=cX.extract(options,['lines'])
+
+		return obj;
+
 	}
 
 
@@ -121,7 +144,6 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 
 		//Wrap the whole execution in a promise, which we return once the song has been played
 		return new Promise(function _execFileInPromise(resolve, reject){
-			
 			var child_process=cp.execFile(cmd, args, obj.options, (error, stdout, stderr)=>{
 					
 				//Build return object
@@ -150,7 +172,7 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 		// log.highlight(log.logVar(Object.values(arguments),3000));
 		var obj=_execPrepare(cmd,args,options);
 		
-		//2019-20-22: For now we just pipe everything, which means on success we can't access stderr
+		//2019-10-22: For now we just pipe everything, which means on success we can't access stderr
 		//				Check out more here:
 		//		https://github.com/rauschma/stringio/blob/master/ts/src/index.ts
 		//		https://2ality.com/2018/05/child-process-streams.html
@@ -170,6 +192,8 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 		
 		return _execFileCallback(obj);
 	};
+
+
 
 
 	/*
