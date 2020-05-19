@@ -269,8 +269,8 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 
 	function whoami(){
 		var x={
-			user:cpX.native.execFileSync('whoami').toString()
-			,groups:cpX.native.execFileSync('groups').toString().split(' ').filter(g=>g)
+			user:cpX.native.execFileSync('whoami').toString().trim()
+			,groups:cpX.native.execFileSync('groups').toString().trim().split(' ').filter(g=>g)
 			,uid:process.getuid()
 			,gid:process.getgid()
 			,gids:process.getgroups()
