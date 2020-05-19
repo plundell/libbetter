@@ -676,6 +676,8 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	*
 	* @param string path 	    The path to check
 	* @opt string cwd 			If passed AND $path is relative, then this will be used as cwd instead of cwd of process
+	* @opt string cwdAlt 		If 'relative' flag is passed and we don't want paths to be relative to cwdOrig
+	* @opt flag 'make-relative' If passed, paths will be made relative to $cwd or $cwdAlt		
 	* @opt flag 'no-undefined'  If passed, if the path includes the STRING 'undefined' ANYWHERE an error will be thrown
 	*
 	* @throws <BLE TypeError> 	If path is not a string
