@@ -1113,42 +1113,77 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	*
 	* NOTE: Only works on unix systems that have 'ls' command
 	*
-	* @param string path 		Path or search pattern
-	* @opt boolean fullPath 	If ==true + $path is search pattern => /path/to/name.txt, else/default name.txt
+	* @param string path 		Path or search pattern. NOTE: pattern only works on unix systems that have 'find' command
+	* @opt string|bool mode		The following are accepted:	
+	*	filename,basename,name,file,false 	=> foo.js
+	* 	fullpath,full,path,true 			=> /path/to/foo.js
+	*   relative => ./foo.js 	NOTE: relative to process.cwd() or $relativeTo
+	* 
 	*
 	* @throw <ble TypeError>
 	* @throw <ble ENOENT> 		If the path doesn't exist (does not apply to search patterns)
 	* @return array[string]	 	Array of filename/paths (see ^), or an empty array
 	* @sync
 	*/
-	function ls(path,fullPath=false){
-		//Make sure we have a full path 
-		path=resolvePath(path);
-		var isSearchPattern=path.indexOf('*')>-1
+	function ls(path,mode="basename",relativeTo){
+		//For clarity and same handling here and in resolvePath()
+		relativeTo=relativeTo||process.cwd();
 
-		try{
-			var obj=cpX.execFileSync('ls',[path]);
-		}catch(obj){
-			if(!isSearchPattern){ //don't warn on search patterns
-				log.throwCode("ENOENT",'No such file or directory:',path);
+		cX.checkTypes(['string','string','string'],[path,mode,relativeTo]);
+
+		//Normalize the mode
+		switch(mode){
+			case 'relative':mode='relative'; break;
+			case 'fullpath':case 'full':case 'path':case true: mode='fullpath'; break;
+			case 'basename':case 'filename':case 'name':case 'file':case false: default:mode='basename';
+		}
+
+
+		//Make sure we have a full path (which could be a pattern)
+		let fullpathOrPattern=resolvePath.apply(this,[path,relativeTo]);
+			//^here $relativeTo will only have an affect if $path is relative, in which case it's assumed to be
+			//relative to $relativeTo 
+
+		var index=fullpathOrPattern.indexOf('*'),list;
+		if(index>-1){
+			//For "search patterns" we use 'find' 
+			let dir=fullpathOrPattern.substr(0,index), pattern=fullpathOrPattern.substr(index); //keep outside try-block so errors aren't mistaken...
+			try{
+// DevNote 2020-05-18: 'ls' needs a shell feature called 'globbing' which expands '*' to matching files to do this, but when
+// trying to run with a shell we got the files in pwd, it completely ignored the path we were asking for... Also, trying
+// to run execSync('find',[path]) will return `find pwd`, while execFileSync('find',[path]) will in fact return `find pwd`
+				list=cpX.execFileSync('find',[dir,'-name',pattern],{lines:true}).stdout;
+			}catch(err){
+				//If find doesn't match any files it'll throw an error, but really we just want to note this and move on
+				log.note("No files matched pattern",pattern);
+				return [];
 			}
-			return [];
+
+			//This will always return the full path name, so if we don't want that we have to remove everything
+			//before the first *
+			switch(mode){
+				case 'fullpath': return list;
+				case 'basename': return list.map(fullpath=>_p.basename(fullpath));
+
+				//same handling of 'relative' at bottom
+			}
+		}else{
+			//If we just want the contents we just read the dir
+			list=fs.readdirSync(fullpathOrPattern);
+
+			//This will only return the filenames, so if we want the whole path...
+			if(mode=='basename')
+				return list;
+
+			//For both the other cases we first need the full path
+			list=list.map(basename=>_p.resolve(fullpathOrPattern,basename));
+
+			if(mode=='fullpath')
+				return list;
 		}
 
-		var list=obj.stdout.split('\n');
-
-		//Warn if it seems we've ls'd a file (we probably want to ls dirs)
-		if(list.length==1 && path.endsWith(list[0]) && inodeType(path)=='file'){
-			log.warn("You called ls on a single file, was that intentional?")
-		}
-
-		if(fullPath && !isSearchPattern){
-			//if a search pattern is use, 'ls' will naturally return the whole path, else we have to add it
-			list=list.map(file=>_p.resolve(path,file));
-		}
-
-		return list;
-
+		//If we're still running we have fullpaths and want relative paths
+		return list.map(fullpath=>resolvePath(fullpath,'make-relative',relativeTo));
 	}
 
 
@@ -1926,6 +1961,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 			.then(()=>cX.promisifyCallback(fs.rename,oldPath,newPath))
 		;
 	}
+
 
 
 	return _exports;
