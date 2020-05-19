@@ -687,20 +687,14 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 
 		//Get options 
 		var noUndefined=cX.extractItem(options,'no-undefined')
-			,cwd=cX.getFirstOfType(options,'string')
+			,makeRelative=cX.extractItem(options,'make-relative')
+			,cwd=cX.getFirstOfType(options,'string')||process.cwd()
+			,cwdAlt=cX.getFirstOfType(options,'string')||cwd
 		;
 		
-		//If already cleaned, don't do it again;
-		// console.log(cleaned);
-		if(cleaned.hasOwnProperty(path))
+		//If the path matches an already cleaned one, and no options were passed in, it's already been cleaned...
+		if(!options.length && cleaned.hasOwnProperty(path))
 			return path;
-
-
-		if(path.substring(0,1)!='/')
-			path=_p.resolve(cwd||process.cwd(),path);
-		
-
-		path= _p.normalize(path)
 
 		//Since there is a larger risk that someone built a filepath without realizing that one of the
 		//components was undefined (which turned into the string 'undefined' and got included as a dir 
@@ -709,6 +703,17 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 			log.makeError("The path included substring 'undefined':",path)
 				.addHandling("If 'undefined' should be allowed, please call this function with arg #2==true.")
 				.throw();
+
+		//Resolve paths if they're relative
+		if(!_p.isAbsolute(path))
+			path=_p.resolve(cwd,path);
+		
+		//Normalize...
+		path= _p.normalize(path)
+
+		//And if we want relative paths, make them so again (possibly relative to something else)
+		if(makeRelative)
+			path='./'+_p.relative(cwdAlt,path);
 
 		//2019-12-09: Add to object so we don't clean string again. This will speed things up a little on 
 		// 			  expense of memory, but more importantly this allows arg #2 to be enacted once and then
