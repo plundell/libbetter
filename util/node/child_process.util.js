@@ -194,6 +194,11 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 		var stack=obj.stack;
 		delete obj.stack;
 
+
+		//If 'lines' options was passed
+		if(obj.localOptions.lines)
+			obj.stdout=obj.stdout.split('\n');
+
 	    if(!error){
 	    	return obj;
 
