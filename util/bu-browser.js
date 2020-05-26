@@ -15,7 +15,29 @@ module.exports=function exportBetterUtilBrowser(dep){
 
     //Rename the log
     const _log = cX._log;
-    _log.changeName('BetterUtil');
+
+
+
+
+
+
+    //Some browser-version functions moved from cX
+    cX.timerStart=function timerStart(){
+        return window.performance.now()
+    }
+
+    cX.timerStop=function timerStop(start,format){
+        var nano=(window.performance.now()-start)*1000000;
+        return cX.formatNano(nano,format);
+    }
+
+
+
+
+
+
+
+
 
 	
 	const elemX=require('./browser/elements.util.js')({cX,_log});
@@ -35,4 +57,6 @@ module.exports=function exportBetterUtilBrowser(dep){
     return bu;
 
 }
+
+
 

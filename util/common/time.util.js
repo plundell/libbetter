@@ -26,8 +26,9 @@ module.exports=function export_tX({vX,_log}){
 		,tomorrowMs
 		,age
 		
-		,timerStart
-		,timerStop
+		// ,timerStart //moved to bu-browser and bu-node
+		// ,timerStop  //moved to bu-browser and bu-node
+		,formatNano
 
 		,timeToDate
 		,compareTimes
@@ -322,7 +323,7 @@ module.exports=function export_tX({vX,_log}){
 
 
 	function timerStart(){
-		if(process)
+		if(typeof process)
 			return process.hrtime();
 		else
 			return window.performance.now()
@@ -336,26 +337,31 @@ module.exports=function export_tX({vX,_log}){
 		}else{
 			nano=(window.performance.now()-start)*1000000;
 		}
+	}
+
+	function formatNano(nano,format){
+		var div=1;
 		switch(format){
 			case 's':
 			case 'sec':
 			case 'seconds':
-				return round(nano/1000000000);
+				div=1000000000; break;
 			case 'ms':
 			case 'milli':
 			case 'milliseconds':
-				return round(nano/1000000);
+				div=1000000; break;
 			case 'us':
 			case 'micro':
 			case 'microseconds':
-				return round(nano/1000); 
+				div=1000; break;
 			case 'ns':
 			case 'nano':
 			case 'nanoseconds':
-				return nano;
+				break;
 			default:
 				throw new Error("Please specify format (arg #2)");
 		}
+		return Math.round(nano/div);
 	}
 
 
