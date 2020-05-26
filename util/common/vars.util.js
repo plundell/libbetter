@@ -185,16 +185,18 @@ module.exports=function export_vX({varType,logVar,_log}){
 				return false;
 			else{
 				try{
-					// err.message=(typeof falseOrCaller=='string' ? falseOrCaller+'() a' : 'A')+'rg #'+(i+1)+': '+err.message
-					// throw(err);
+					//FutureDev: Don't make this one long chain of calls, since we want to log BLE vv if smth goes wrong
 					var BLE=_log.makeError(err);
-					BLE.msg=(typeof falseOrCaller=='string' ? falseOrCaller+'() a' : 'A')+'rg #'+(i+1)+': '+BLE.msg;
-					BLE.changeWhere(1); //remove another line from the stack
+					BLE.prepend((typeof falseOrCaller=='string' ? falseOrCaller+'() a' : 'A')+'rg #'+(i+1)+': ');
+					BLE.changeWhere(1);
+					
 				}catch(e){
 					console.error("BUGBUG checkTypes(): something was wrong with <BetterLogEntry>:",e,typeof BLE,BLE);
 					console.error(err);
+					throw err;
 				}
-				throw BLE;
+				//FutureDev: Obviously we have to throw OUTSIDE the above block, else the catch will trigger, duhdoojj
+				BLE.throw();
 
 			}
 		}
