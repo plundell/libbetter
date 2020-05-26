@@ -69,7 +69,7 @@ module.exports=function export_pX({_log,vX}){
 		if(x instanceof Promise)
 			return x
 		else if(typeof x =='function')
-			return applyPromise(x)
+			return applyPromise.apply(this,arguments);
 		else
 			return Promise.resolve(x);
 	}

@@ -1203,7 +1203,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	* @sync
 	*/
 	function lh(path){
-		var list=ls(path,true),details=[],ipath,i=0;
+		var list=ls(path,'fullpath'),details=[],ipath,i=0;
 		// console.log(list);
 		for(ipath of list){
 			try{

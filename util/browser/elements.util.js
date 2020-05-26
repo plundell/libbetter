@@ -1552,43 +1552,56 @@ module.exports=function export_elemX({cX,_log}){
 	*/
 	function multiQuerySelector(targets,selectors,...flags){
 		var types=cX.checkTypes([['node','nodelist'],['string','array'],['array','undefined','string']],arguments);
-		targets=(types[0]=='node' ? [targets] : Array.from(targets));
-		selectors=(types[1]=='string' ? [selectors] : Array.from(selectors));
-		flags=(types[3]=='string' ? [flags] : flags) || [];
-		
-		let group=flags.includes('group')
-			,self=flags.includes('self')
-			,cls=flags.includes('class')
-		;
-
-		let func=(cls?'getElementsByClassName':'querySelectorAll');
-		
-		const all=group ? {} : [];
-		
-		for(let selector of selectors){
-			let arr=all;
-			if(group){
-				if(!all.hasOwnProperty(selector))
-					group[selector]=[];
-				arr=group[selector]
-			}
+		try{
+			//Handle diff types of args
+			targets=(types[0]=='node' ? [targets] : Array.from(targets));
+			selectors=(types[1]=='string' ? [selectors] : Array.from(selectors));
+			flags=(types[3]=='string' ? [flags] : flags) || [];
 			
-			//For the sake of .matches() we make sure single class names are prepended by a '.'. If
-			//the user has supplied something like 'clsA clsB' then it's their own damn fault
-			if(cls && self && selector.charAt(0)!='.'){
-				selector='.'+selector;
-			}
-
-			for(let target of targets){
-				arr.push.apply(arr,Array.from(target[func].call(target,selector)));
+			//Check which flags are set...
+			const group=flags.includes('group')
+				,self=flags.includes('self')
+				,cls=flags.includes('class')
 				
-				if(self && target.matches(selector)){
-					arr.push(target)
+				//...then based on that figure out func and results holder
+				,func=(cls?'getElementsByClassName':'querySelectorAll')
+				,holder=(group ? {} : [])
+			;
+
+			
+			//Now loop over all the selectors and run the func on each target to populate the holder
+			for(let selector of selectors){
+				//Depending on if we're grouping, use the holder array or get/make one for the selector
+				let arr=holder;
+				if(group){
+					if(!holder.hasOwnProperty(selector))
+						holder[selector]=[];
+					arr=holder[selector]
+				}
+				
+				//For the sake of .matches() we make sure single class names are prepended by a '.'. If
+				//the user has supplied something like 'clsA clsB' then it's their own damn fault
+				if(cls && self && selector.charAt(0)!='.'){
+					selector='.'+selector;
+				}
+
+				for(let target of targets){
+					//Fun the func on this target using this selector
+					arr.push.apply(arr,Array.from(target[func].call(target,selector)));
+					
+					//If we're checking the target itself...
+					if(self && target.matches(selector)){
+						arr.push(target)
+					}
 				}
 			}
-		}
 
-		return all;
+			//Return all matches
+			return holder;
+		}catch(err){
+			_log.warn("BUGBUG. Undocumented error caught. Dev: either prevent or add to func description.");
+			_log.throw(err,arguments);
+		}
 	}
 
 

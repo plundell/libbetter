@@ -340,32 +340,39 @@ module.exports=function export_oX({_log,vX}){
 	*
 	* @param object obj
 	* @param mixed 	filter 			A single key, an array of keys, or a function to validate keys
-	* @param bool excludeMissing 	If true, keys that are not found on obj are not included on returned object. Else
-	*								the returned object will have that key with value undefined
+	* @opt string exclude 	'missing' or 'undefined' (true=='missing' for legacy). Exclude keys that are missing from
+	*							$obj, or set to undefined
 	* 
 	* @throws TypeError
 	* @return object
 	*/
-	function subObj(obj,filter, excludeMissing=false){
+	function subObj(obj,filter, exclude=null){
 		var types=vX.checkTypes([['array','object'],['string','number','array','function']],[obj,filter])
 
 		if(types[1]=='function'){
 			var keys=Object.entries(obj).filter(keyvalue=>filter(keyvalue[0],keyvalue[1])).map(keyvalue=>keyvalue[0]);
-			excludeMissing=false; //nothing to exclude
+			exclude=null; //nothing to exclude
 		}else if(types[1]!='array'){
+			//string or number
 			return obj[filter];
-		}else
+		}else{
+			//array
 			keys=filter
-
+		}
+		
 		var rObj={};
-		if(excludeMissing){
+		if(exclude){
+			let keepUndef=(exclude=='undefined'||exclude=='excludeUndefined'?false:true);
 			keys.forEach(key=>{
-				if(obj.hasOwnProperty(key))
-					rObj[key]=obj[key]
+				if(obj.hasOwnProperty(key)){
+					if(obj[key]!=undefined || keepUndef)
+						rObj[key]=obj[key]
+				}
 			})
 		}else{
 			keys.forEach(key=>rObj[key]=obj[key])
 		}
+
 
 		return rObj;
 	}

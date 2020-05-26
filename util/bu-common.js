@@ -30,7 +30,7 @@ module.exports=function exportBetterUtilCommon(dep){
 		throw new Error("BUGBUG: The BetterLog constructor didn't have prop-funcs varType and logVar");
 	}
 
-	const _log=new BetterLog('cX')
+	const _log=new BetterLog('BetterUtil');
 
 
 
