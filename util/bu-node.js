@@ -48,16 +48,16 @@ module.exports=function exportBetterUtil(dep){
 	const cpX=require('./node/child_process.util.js')({BetterLog,cX,sX});
 	const fsX=require('./node/filesystem.util.js')({BetterLog,cpX,cX});
 	
+	const netX=require('./node/network.util.js')({BetterEvents,BetterLog,cX,cpX,fsX});
+
 	/*
 	* Polyfil for external package https://www.npmjs.com/package/pump
 	*/
 	const pump =dep.pump || require('./node/pump.polyfill.js');
-	const httpX=require('./node/http.util.js')({BetterLog,cX,fsX,pump});
+	const httpX=require('./node/http.util.js')({BetterLog,cX,fsX,pump,netX});
 	
-	const os=require('os');
-	const netX=require('./node/network.util.js')({BetterEvents,BetterLog,cX,cpX,fsX,os});
 
-	return {cX,sX,cpX,fsX,httpX,netX,os};
+	return {cX,sX,cpX,fsX,httpX,netX};
 }
 
 

@@ -39,15 +39,30 @@ module.exports=function exportBetterUtilBrowser(dep){
 
 
 
-	
-	const elemX=require('./browser/elements.util.js')({cX,_log});
+	const restX=require('./browser/rest.util.js')({cX,_log});
+    const evtX=require('./browser/domevents.util.js')({cX,_log});
+
+	const elemX=require('./browser/elements.util.js')({cX,_log,evtX});
+    
 	const styleX=require('./browser/styling.util.js')({cX,_log,elemX});
 	const mobX=require('./browser/mobile.util.js')({cX,_log,elemX});
-	const restX=require('./browser/rest.util.js')({cX,_log});
-    const evtX=require('./browser/domevents.util.js')({cX,_log,elemX});
-	
+
+
     //Combine everything onto the same object
     var bu=Object.assign(cX,elemX,styleX,mobX,restX,evtX);
+
+    //Apply any styles specified in the various modules^
+    delete bu._styles;
+    Object.entries(Object.assign({},elemX._styles,styleX._styles,mobX._styles,restX._styles,evtX._styles))
+        .forEach(([name,styles])=>{
+            try{
+                _log.debug("Adding style: "+name);
+                Object.entries(styles).forEach(([selector,css])=>bu.createCSSRule(selector,css));
+            }catch(err){
+                // console.warn(bu);
+                _log.error("BUGBUG: failed to apply style",name,styles,err);
+            }
+        })
 
     //Since this module is exclusivly used in the browser, we also set the exported
     //object on the passed in one, that way if dep==window it will automatically be

@@ -10,7 +10,7 @@
 	with webpages
 
 */
-module.exports=function export_httpX({BetterLog,cX,fsX,pump,...dep}){
+module.exports=function export_httpX({BetterLog,cX,fsX,netX,pump,...dep}){
 	// const BetterLog=require('../../better_log');
 	const log=new BetterLog('httpX');
 
@@ -51,6 +51,12 @@ module.exports=function export_httpX({BetterLog,cX,fsX,pump,...dep}){
 	* @access public
 	*/
 	const querystring = dep.querystring||require('querystring');
+
+	/**
+	* @var object   dns    The native dns class, made available on the exported object
+	* @access public
+	*/
+	const dns = dep.dns||require("dns");
 	
 	/**
 	* @var object cp 	Native child_process. Used as backup request with wget
@@ -58,62 +64,62 @@ module.exports=function export_httpX({BetterLog,cX,fsX,pump,...dep}){
 	// const cp = dep.cp||require("child_process");
 
 	const codes={
-		100:'100 Continue'
-	    ,101:'101 Switching Protocols'
-	    ,102:'102 Processing'
-	    ,103:'103 Checkpoint'
-	    ,200:'200 OK'
-	    ,201:'201 Created'
-	    ,202:'202 Accepted'
-	    ,203:'203 Non-Authoritative Information'
-	    ,204:'204 No Content'
-	    ,205:'205 Reset Content'
-	    ,206:'206 Partial Content'
-	    ,207:'207 Multi-Status'
-	    ,300:'300 Multiple Choices'
-	    ,301:'301 Moved Permanently'
-	    ,302:'302 Found'
-	    ,303:'303 See Other'
-	    ,304:'304 Not Modified'
-	    ,305:'305 Use Proxy'
-	    ,306:'306 Switch Proxy'
-	    ,307:'307 Temporary Redirect'
-	    ,400:'400 Bad Request'
-	    ,401:'401 Unauthorized'
-	    ,402:'402 Payment Required'
-	    ,403:'403 Forbidden'
-	    ,404:'404 Not Found'
-	    ,405:'405 Method Not Allowed'
-	    ,406:'406 Not Acceptable'
-	    ,407:'407 Proxy Authentication Required'
-	    ,408:'408 Request Timeout'
-	    ,409:'409 Conflict'
-	    ,410:'410 Gone'
-	    ,411:'411 Length Required'
-	    ,412:'412 Precondition Failed'
-	    ,413:'413 Request Entity Too Large'
-	    ,414:'414 Request-URI Too Long'
-	    ,415:'415 Unsupported Media Type'
-	    ,416:'416 Requested Range Not Satisfiable'
-	    ,417:'417 Expectation Failed'
-	    ,418:'418 I\'m a teapot'
-	    ,422:'422 Unprocessable Entity'
-	    ,423:'423 Locked'
-	    ,424:'424 Failed Dependency'
-	    ,425:'425 Unordered Collection'
-	    ,426:'426 Upgrade Required'
-	    ,449:'449 Retry With'
-	    ,450:'450 Blocked by Windows Parental Controls'
-	    ,500:'500 Internal Server Error'
-	    ,501:'501 Not Implemented'
-	    ,502:'502 Bad Gateway'
-	    ,503:'503 Service Unavailable'
-	    ,504:'504 Gateway Timeout'
-	    ,505:'505 HTTP Version Not Supported'
-	    ,506:'506 Variant Also Negotiates'
-	    ,507:'507 Insufficient Storage'
-	    ,509:'509 Bandwidth Limit Exceeded'
-	    ,510:'510 Not Extended'
+		100:'Continue'
+	    ,101:'Switching Protocols'
+	    ,102:'Processing'
+	    ,103:'Checkpoint'
+	    ,200:'OK'
+	    ,201:'Created'
+	    ,202:'Accepted'
+	    ,203:'Non-Authoritative Information'
+	    ,204:'No Content'
+	    ,205:'Reset Content'
+	    ,206:'Partial Content'
+	    ,207:'Multi-Status'
+	    ,300:'Multiple Choices'
+	    ,301:'Moved Permanently'
+	    ,302:'Found'
+	    ,303:'See Other'
+	    ,304:'Not Modified'
+	    ,305:'Use Proxy'
+	    ,306:'Switch Proxy'
+	    ,307:'Temporary Redirect'
+	    ,400:'Bad Request'
+	    ,401:'Unauthorized'
+	    ,402:'Payment Required'
+	    ,403:'Forbidden'
+	    ,404:'Not Found'
+	    ,405:'Method Not Allowed'
+	    ,406:'Not Acceptable'
+	    ,407:'Proxy Authentication Required'
+	    ,408:'Request Timeout'
+	    ,409:'Conflict'
+	    ,410:'Gone'
+	    ,411:'Length Required'
+	    ,412:'Precondition Failed'
+	    ,413:'Request Entity Too Large'
+	    ,414:'Request-URI Too Long'
+	    ,415:'Unsupported Media Type'
+	    ,416:'Requested Range Not Satisfiable'
+	    ,417:'Expectation Failed'
+	    ,418:'I\'m a teapot'
+	    ,422:'Unprocessable Entity'
+	    ,423:'Locked'
+	    ,424:'Failed Dependency'
+	    ,425:'Unordered Collection'
+	    ,426:'Upgrade Required'
+	    ,449:'Retry With'
+	    ,450:'Blocked by Windows Parental Controls'
+	    ,500:'Internal Server Error'
+	    ,501:'Not Implemented'
+	    ,502:'Bad Gateway'
+	    ,503:'Service Unavailable'
+	    ,504:'Gateway Timeout'
+	    ,505:'HTTP Version Not Supported'
+	    ,506:'Variant Also Negotiates'
+	    ,507:'Insufficient Storage'
+	    ,509:'Bandwidth Limit Exceeded'
+	    ,510:'Not Extended'
 	}
 	const mime = {
 	    html: 'text/html'
@@ -145,29 +151,240 @@ module.exports=function export_httpX({BetterLog,cX,fsX,pump,...dep}){
 	    ,'application/x-www-form-urlencoded':'urlencoded'
 	};
 
-
-
-	function get(url,options){
-		if(typeof options=='object') //If not request() will throw...
-			options.method='get';
-		//get is the default method, so if no options are specified at all then it'll be 'get'
-
-		return request(url,options);
+	const defaultPorts={
+		"ftp":21
+		,"gopher":70
+		,"http":80
+		,"https":443
+		,"ws":80
+		,"wss":443
 	}
+
+	/*
+	* Parse a url, but throw if it doesn't at least contain a valid host
+	*
+	* @param mixed url 		@see native 'url.parse'
+	* @opt string mode 		The following options are available
+	*							'full'   - a <URL> object, @see native 'url.parse'
+	*							'slim'   - an object with props protocol,host,port,path 
+	*							'string' - a string url like: https://www.example.com:80/path/to/file.ext
+	*
+	* @throw EFAULT 		If we couldn't at least get a host
+	*
+	* @return string|object @see $mode				
+	*/
+	function makeUrlObj(url,mode='full'){
+		if(cX.checkType(['string','object'],url)=='string'){
+			var obj=u.parse(url);//...the parsed url
+		}else{
+			obj=url;
+		}
+
+		//Make sure the url is good
+		if(!obj.host && !obj.hostname)
+			log.throwCode('EFAULT',`No host found in the url (original, parsed):`,url,obj);
+
+		switch('mode'){
+			case 'slim':
+				return cX.subObj(obj,['protocol','hostname','port','path'],'hasOwnNonNullProperty');
+			case 'string':
+			case 'href':
+				return obj.href;
+			case 'full':
+			default: //don't throw on faulty mode
+				return obj;
+		}
+
+	}
+
+
+	/*
+	* @param array|object  opts  	Array of seperate arguments, or object options
+	*
+	* @return object 		Object with options accepted by http.request or https.request
+	*/
+	function parseOptions(opts){
+		if(Array.isArray(opts)){
+			var port=cX.getFirstOfType(opts,'number','extract')
+				,path=cX.getFirstOfType(opts,'string','extract')
+				,options=cX.getFirstOfType(opts,'object','extract')
+			;
+		}else if(opts && typeof opts=='object'){
+			options=opts;
+		}
+
+		if(options)
+			var parsed=cX.subObj(options,[
+				'agent','auth','createConnection','defaultPort','family','headers','host',
+				'hostname','insecureHTTPParser','localAddress','lookup','maxHeaderSize',
+				'method','path','port','protocol','setHost','socketPath','timeout'
+			],'hasOwnDefinedProperty')
+		else
+			parsed={};
+
+
+		//Explicitly specified values take presidence (But remember, in request() the url takes even further precidence)
+		if(port)
+			parsed.port=port;
+		if(path)
+			parsed.path=path;
+
+
+		//TODO 2020-06-15: Add further checks that no options are contradictory
+
+		return parsed;
+	}
+
+
+	/*
+	* Check if a given hostname and 
+	*
+	* @param string|object hostname 	@see makeUrlObj()
+	* @opt object options 				@see native dns.lookup
+	*
+	* @return Promise(string|array,err) If no $options are given the first IPv4 address.
+	* @reject TypeError
+	* @reject ENOTFOUND
+	*/
+	function resolveHostname(hostname,options){
+		var url=makeUrlObj(hostname); //TypeError
+		var {promise,callback}=cX.exposedPromise()
+		dns.lookup(url.hostname,options,callback);
+		return promise.catch(function resolveHostname_failed(err){
+			return log.makeError(err).reject(); //ENOTFOUND
+			//NOTE: it uses same err code for everything it seems, even filesystem stuff like not finding a file descriptor
+		});
+
+	}
+
+
+
+	/*
+	* Check if a webserver is running and a certain resource exists
+	*
+	* @param string|object url 	@see makeUrlObj()
+	*
+	* @return Promise(object,err)
+	* @reject TypeError  
+	* @reject EFAULT     Could not parse url to get a host
+	* @reject ENOTFOUND  The url didn't resolve to an ip
+	* @reject ESRCH      Could not reach server running at ip:port
+	* reject number 	 Any HTML error
+	*
+	* @public
+	*/
+	async function webResourceExists(url){
+		var checks={
+			validUrl:false
+			,connected:false
+			,resolvesToIp:false
+			,reachable:false
+			,pageExists:false
+		};
+		try{
+			var urlObj=makeUrlObj(url) //TypeError, EFAULT
+				href=urlObj.href
+			;
+			checks.validUrl=true;
+			log.trace(`${href} - valid url`)
+
+			if(!(await netX.ping('8.8.8.8')))
+				log.throwCode('ENETDOWN','Cannot reach internet (cannot ping Google DNS @ 8.8.8.8)')
+			checks.connected=true;
+			log.trace(`${href} - connected to internet`);
+
+			let ip=await resolveHostname(urlObj); //ENOTFOUND
+			checks.resolvesToIp=true;
+			log.trace(`${href} - resolved to ${ip}`);
+
+			let port=urlObj.port||defaultPorts[urlObj.protocol]||80;
+			checks.reachable=await netX.checkPortOpen(ip,port);
+			if(!checks.serverRunning)
+				log.throwCode('ESRCH',`Could not reach a server running at ${ip}:${port}`); //ESRCH
+			else
+				log.trace(`${href} - reached server at port ${port}`)
+
+			await head; //Could throw any HTML error
+			checks.pageExists=true;
+			log.trace(`${href} - page seems to exist and returns headers`);
+
+			return checks;
+		}catch(err){
+			return log.makeError(err).addExtra(checks).reject();
+		}
+	}
+
+	/*
+	* @param string method
+	* @param array opts
+	* @return object 		The options object ready to be passed to request()
+	*/
+	function getShorthandOptions(method,opts){
+		return Object.assign(
+			{'_followRedirects':1}
+			,parseOptions(opts)
+			,{method:method,_onlyContents:true}
+		);
+	}
+
+	/*
+	* Shorthand for request() with .method=='head' and ._onlyContents=true
+	*
+	* @param string url
+	* @opt object options
+	*
+	* @return Promise(headers,err) 	Resolves with the headers, rejects with err
+	* @public
+	* @async
+	*/
+	function head(url,...opts){
+		return request(url,getShorthandOptions('HEAD',opts));
+	//2020-06-15: Do we need to do any further parsing of the head?
+	}
+
+
+	/*
+	* Shorthand for request() with .method=='get' and ._onlyContents=true
+	*
+	* @param string url
+	* @opt object options
+	*
+	* @return Promise(data,err) 	Resolves with the data (parsed if possible), rejects with err
+	* @async
+	*/
+	function get(url,...opts){
+		return request(url,getShorthandOptions('GET',opts));
+	}
+
+
+
 	/*
 	* @function request     Wrapper around http(s).request() methods.
 	*
 	* @var string url
 	* @var object options 	Options passed along to request. 
 	*							@see https://nodejs.org/api/http.html#http_http_request_url_options_callback
+	*						  NOTE: 'timeout' option is ms until connection is made, not for entire transfer!
 	*						Also, extra local options available:
 	*							_followRedirects
 	*							_alwaysResolve 	
 	*							_onlyContents 	resolve with data, reject with error
 	* @param any payload 	The data to send in case of POST requests. Will be converted to a JSON string if not a primitive
 	*
-	* @return Promise(<StdObject>)|string  	Resolves AND rejects with same object. Props: type, code, err and data;
-	*										or the string contents if $options._onlyContents==true 
+	*
+	* @return Promise(object|string,object|err)  	Resolves AND rejects with same object {type, code, err, data} 
+	*													-or- 
+	*												If $options._onlyContents==true, then .data and .err values. 
+	* @reject TypeError
+	* @reject EFAULT 	$url couldn't be processed into a valid url
+	* @reject ENOTFOUND couldn't resolve host ..........??? not sure if this is actually thrown... maybe we have to check dns ourselves...
+	* @reject number 	Any HTML err code
+	* 
+	* NOTE: .data will be a string unless the content type was specified and parsing was able to take place, in which case it 
+	*       could be anything
+	*
+	* @async
+	* @public
 	*/
 	async function request(url,options={},payload){
 		try{
@@ -178,15 +395,11 @@ module.exports=function export_httpX({BetterLog,cX,fsX,pump,...dep}){
 			//want to include it in errors...
 			var redirects=Array.isArray(arguments[3]) ? arguments[3] : [];
 
-			//Now check the args that make up the request. We'll be passing a single options object to httpX.request() vv
-			//so we essentially combine...
-			cX.checkTypes(['string','object',['primitive','object','array','undefined']],[url,options,payload]);
-			x.request=Object.assign(
-				u.parse(url)//...the parsed url
-				,options//...additional options
-			); 
-			// For more details: https://nodejs.org/api/http.html#http_http_request_options_callback
-			
+			//Parse and combine the url and other options into a single "request" object
+			x.request=Object.assign({},options,makeUrlObj(url,'slim'));
+				//^For more details: https://nodejs.org/api/http.html#http_http_request_options_callback
+
+			cX.checkType(['primitive','object','array','undefined'],payload);
 
 			//Decide if it's https or http, then initiate the request. 
 			//Remember: unlike get(), with request() you have to call .end() to tell the remote server that 
@@ -196,9 +409,14 @@ module.exports=function export_httpX({BetterLog,cX,fsX,pump,...dep}){
 			let request=httpX.request(x.request);
 
 			//Well use an exposed promise to wait for the response or any error...
-			var {promise, resolve,reject}=cX.exposedPromise();
+			let timeout=options.timeout ? options.timeout+1000 : undefined
+			var {promise, resolve,reject}=cX.exposedPromise(timeout);
 			request.on('response', resolve);
 			request.on('error', reject);
+
+			//If no timeout was set, at least warn that the fetch is slow
+			if(!timeout)
+				cX.addTimeoutCallback(promise,10000,()=>log.warn("The request has been running for >10 sec...",x.request))
 
 			//...but before waiting we write any payload and end the request
 			request.end(cX.tryJsonStringify(payload)); //will send an empty string if no or bad payload was passed
@@ -245,12 +463,13 @@ module.exports=function export_httpX({BetterLog,cX,fsX,pump,...dep}){
 			//If we didn't get a successfull code, set it as an error
 			if(x.code<200 ||x.code>299){
 				//Build a message using code and body
-				x.err=log.makeError(codes[x.code]+'. '+cX.logVar(x.data)).setCode(x.code);
+				x.err=log.makeError(codes[x.code]+'. Response: '+cX.logVar(x.data)).setCode(x.code);
 			}
 
 
 		}catch(err){
-			x.err=log.makeError('GET failed.',err);
+			let method=(x.request.method||'get').toUpperCase();
+			x.err=log.makeError(err).prepend(method+' request failed. ');
 		}
 			
 		if(Array.isArray(redirects) && redirects.length){
@@ -416,9 +635,11 @@ module.exports=function export_httpX({BetterLog,cX,fsX,pump,...dep}){
 		,'url':u
 		,'zlib':zlib
 		,'querystring':querystring
+		,dns
 		,'codes':codes
 		,'mime':mime
 		,'mimeLookup':mimeLookup
+		,makeUrlObj
 		,'get':get
 		,'request':request
 		,'fetchIncomingMessage':fetchIncomingMessage

@@ -462,96 +462,129 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 	}
 
 
+
 	/*
-	* Spawn a child process, with suitable logging etc...
+	* Spawn a child process which should emit streaming data on stdout, with suitable logging, adding a few bells and whistled
+	*	- emit 'readable' on child itself when stdout becomes readable (and stays that way for 10ms)
+	*   - emit 'nodata' on child itself if stdout ends before producing any data
+	*   - optionally emit 'timeout' on child itself it no data is produced within $readableTimeout
+	* 	- stderr stores all output on child._stderr and emits 'line' on 
 	*
-	* @param string path 		Path to executable
-	* @param array 	args 		Array of strings
-	* @param number timeout 	Default none. Kill child if it hasn't become readable in this many ms
+	* @param string  path 		      Path to executable
+	* @opt array|string|number 	args  Array args or single arg
+	* @opt number    readableTimeout  Default none. Kill child if it hasn't become readable in this many ms
 	*
-	* @return Promise(child,[err,child])
+	* @throws <ble TypeError>
+	*
+	* @return <ChildProcess> 	
 	*/
 	
-	function spawnReadable(path,args=[],timeout=0){
+	function spawnReadable(path,args=[],readableTimeout=0){
 
-		try{cX.checkTypes(['string','array','number'],[path,args,timeout])}catch(err){return log.reject(err)}
 
-		var child,who=path;
-		return new Promise(function _spawnReadable(resolve,reject){
-			
-			log.debug(`About to spawn: "${path} ${argsToString(args)}"`);
-			child=cp.spawn(path, args);
-			who+='('+child.pid+')';
-			log.debug(`Spawned ${who}, waiting for stdout to become readable...`);
+		if(cX.checkTypes(['string',['array','string','number'],'number'],[path,args,readableTimeout])[1]!='array'){
+			args=Array(args);
+		}
 
-			//Save everything written to stderr so we have it if something fails
-			child._stderr=[];
-			child.stderr.on('data',(err)=>{
-				let str=err.toString('utf8').trim()
-				if(str)
-					str.split('\n').forEach(line=>child._stderr.push(line)); //TODO: data chunks and newlines may not coincide...
-			});
+		var who=path;
+		log.debug(`About to spawn: "${path} ${argsToString(args)}"`);
+		var child=cp.spawn(path, args);
+		child.who=childProc(child);
+		log.debug(`Spawned ${child.who}, expecting stdout to become readable and produce data...`);
 
-			child.on('error',reject)
-			child.stdout.on('end',function spawnReadable_onEnd(){
-				setTimeout(function _spawnReadable_onEnd(){
-					reject(" produced no output and stdout has now ended");
-				},1); //stdout may end before error has fired ^
-			});
-			child.on('exit',function spawnReadable_onExit(){reject(" produced no output and has now exited.")});
-			
-				
-			child.stdout.once('readable',()=>{
-		//2019-03-16: Sometimes a stream becomes readable only to quickly change back (which seems to happen when
-		//			  we move forward a tick...), so check for that
-				setTimeout(function spawnReadable_onReadable(){
-					if(child.stdout.readable){
-						log.info(who+' stdout is now readable');
-						resolve(child);
-					}else
-						reject(" stdout became readable, then quickly became unreadable")
-				},10)
-			});
-			
-			if(timeout)
-				setTimeout(()=>{
-					reject('Timeout. stdout did not become readable within '+timeout+'ms');
-				},timeout);
-			
 
-			if(childStatus(child)!='running')
-				reject("BUGBUG: Child is not running but the 'end' and 'error' events didn't fire");
-		})
-		.catch(err=>{
-			child._stderr.unshift('--- STDERR '+who+' ---');
-			// log.warn(child._stderr.join('\n\t')+'\n')
-			err=log.makeError(err);
-			err.msg=who+err.msg;
-			return Promise.reject([err,child]);
-		})
+
+		//Turn stderr into a line emitter and store it all on the child itself
+		sX.makeLineEmitter(child.stderr)
+		Object.defineProperty(child,'_stderr',{value:[]});
+		child.stderr.on('line',line=>child._stderr.push(line));
+
+
+		//Emit 'readable' on the child itself when stdout becomes readable (and stays that way for 10ms, since sometimes
+		//it quickly goes from readable to unreadable)
+		var wasReadable=false;
+		child.stdout.once('readable',()=>{
+			wasReadable=true;
+			let length=`${child.stdout.readableLength} ${child.stdout.readableObjectMode ? 'objects':'bytes'}`;
+			setTimeout(function spawnReadable_onReadable(){
+				if(child.stdout.readable){ 
+				  //^is true as long as stream has not been destroyed or emitted 'end' or 'error' (but does not mean there is data right now)
+					log.info(child.who+': stdout is now readable');
+					child.emit('readable',child.stdout);
+				}else{
+					//Log a warning
+					log.warn(`${child.who}: stdout became readable with ${length}, but became unreadable within 10ms`);
+				}
+			},10)
+		});
+
+
+		//We're spawning something that should produce data, so if it doesn't do some stuff on the first event that signals that...
+		var onEnd=cX.once(function spawnReadable_onEnd(evt,who){
+			if(!wasReadable){
+				//Emit 'nodata' on the child (where 'error' is reserved for not being able to start or communicate with the process...
+				child.emit('nodata');
+				//...and error on stdout (where 'error' can be used more freely)
+				child.stdout.emit('error',log.error(`${child.who}: stdout produced no data and${who} has now ${evt}`));
+			}
+		});
+		child.stdout.on('end',()=>onEnd('ended'));
+		child.stdout.on('close',()=>onEnd('closed'));
+		child.on('exit',()=>onEnd('exited',' the process'));
+
+
+
+		//If opted, emit if stdout didn't become readble without a timeout
+		if(readableTimeout>0){
+			setTimeout(()=>{
+				if(!wasReadable){
+					child.emit('timeout',log.warn(`${child.who}: stdout did not become readable within ${readableTimeout} ms`));
+				}
+			},readableTimeout);
+		}
+
+		//Finally, create a promise on the child we can use to wait for it to become readable
+		var {promise,resolve,reject}=cX.exposedPromise();
+		var logReject=(evt,err)=>{
+			err=log.makeError(`${child.who} failed with '${evt}'`,err)
+			return reject([err,child]); 
+		}
+		child.readablePromise=promise;
+		child.on('error',logReject.bind('error'));
+		child.on('timeout',logReject.bind('timeout'));
+		child.on('nodata',logReject.bind('nodata'));
+		child.on('readable',(stdout)=>resolve(child)); //unlike the 'readable' event, we resolve with the child object
+
+		return child;
 	}
 
 
 
 
+	/*
+	* Spawn something and turn both stderr and stdout into line emitters
+	*
+	* @params @see spawnReadable
+	*
+	* @return <ChildProcess>
+	*/
+	function spawnLineEmitter(){
+		var child=spawnReadable.apply(this,arguments);
 
-	function spawnLineEmitter(bin,args){
-		var [,t]=cX.checkTypes(['string',['array','string','number']],arguments);
+		log.debug(`Turning stdout on ${child.who} into line emitter`);
 
-		if(t!='array')
-			args=Array(args);
-
-		log.debug(`About to spawn: "${bin} ${args.join(' ')}"`)
-		let child = cp.spawn(bin, args);
-
-		log.makeEntry('info','Spawned:',childProc(child)).addHandling('Turning stdout and stderr into line emitters').exec();
-
-		sX.makeLineEmitter(child.stderr)
 		sX.makeLineEmitter(child.stdout)
 
 		return child;
 
 	}
+
+
+
+
+
+
+
 
 
 
@@ -634,55 +667,67 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 	// }
 
 	function dropPrivs(uid=1000,gid=1000){
-		var groups=Array.isArray(gid)?gid:[gid];
-		gid=groups[0];
-		
-		var _uid,_groups,sameUid, sameGroups;
-		var checkSame=()=>{
-			_uid=process.getuid();
-			_groups=process.getgroups();
-			sameUid=(uid==_uid);
-			sameGroups=(groups.length==_groups.length && groups.every(g=>_groups.includes(g)));
-			return sameUid && sameGroups
-		}
-		
-		if(checkSame()){
-			log.info(`Already running with uid:${uid}, groups:${groups}`)
-			return false;
-		}else{
-			log.debug(`Trying to drop privs from uid:${_uid}, groups:${_groups}`)
-		}
-		
-		var change=()=>{
-			var str='';
+		try{
+			var groups=(cX.checkTypes([['string','number'],['string','number','array']],[uid,gid])[1]=='array'?gid:[gid])
+			gid=groups[0];
+
+		//TODO: Allow named users
+			//In case we got numerical strings
+			uid=cX.forceType('number',uid);
+			gid=cX.forceType('number',gid);
+			groups=groups.map(nr=>cX.forceType('number',nr));
+			
+			var _uid,_groups,sameUid, sameGroups;
+			var checkSame=()=>{
+				_uid=process.getuid();
+				_groups=process.getgroups();
+				sameUid=(uid==_uid);
+				sameGroups=(groups.length==_groups.length && groups.every(g=>_groups.includes(g)));
+				return sameUid && sameGroups
+			}
+			
+			if(checkSame()){
+				log.info(`Already running with uid:${uid}, groups:${groups}`)
+				return false;
+			}else{
+				log.debug(`Trying to drop privs from uid:${_uid}, groups:${_groups}`)
+			}
+			
+
+			if(_uid!=0){
+				if(groups.includes(0)) //2020-06-03: When is this a thing?
+					log.warn("One of your supplementary groups is still root!");
+
+				log.throwCode('EPERM',`Only root can change user, you're running as uid:${_uid}`);
+			}
+
+
+			//For some reason, if we just try to setgid, node just adds the gid and leaves the old one intact, 
+			//so we need to set all groups followed by gid
+			process.setgroups(groups);
+			process.setgid(gid);
+
+			process.setuid(uid);
+			
+
+			//Now just make sure we have it right
+			if(checkSame()){
+				log.note(`Dropped privs. Now running as uid:${uid}, groups:${groups}`)
+				return true
+			}else{
+				log.throwCode("BUGBUG","No errors thrown when changing, but change didn't occur");
+			}
+
+		}catch(err){
+			var logstr='';
 			if(!sameUid)
-				str+=`uid: ${_uid}=>${uid}`;
+				logstr+=`uid:${_uid}=>${uid}`;
+			
 			if(!sameGroups)
-				str+=`${sameUid?'':', '} groups: ${_groups}=>${groups}`;
-			return str;
-		}
+				logstr+=`${sameUid?'':', '} groups:${_groups}=>${groups}`;
+			
 
-
-		if(_uid!=0){
-			if(groups.includes(0))
-				log.warn("One of your supplementary groups is still root!");
-			throw log.error(`Not root, cannot change `+change());
-		}
-
-
-		//For some reason, if we just try to setgid, node just adds the gid and leaves the old one intact, 
-		//so we need to set all groups followed by gid
-		process.setgroups(groups);
-		process.setgid(gid);
-
-		process.setuid(uid);
-
-		//Now just make sure we have it right
-		if(checkSame()){
-			log.note(`Dropped privs to uid:${uid}, groups:${groups}`)
-			return true
-		}else{
-			throw log.error('Failed to change all: '+change());
+			log.throw(`Failed to drop privs: ${logstr}`,err);
 		}
 	}
 

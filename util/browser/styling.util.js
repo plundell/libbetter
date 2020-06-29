@@ -229,7 +229,7 @@ module.exports=function export_styleX({cX,_log,elemX}){
 	* 
 	* @param string selector  Any css selector, ie. the part that comes before the {}
 	* @param string style 	  Everything that goes between {} in a css file
-	* @param boolean replace  If an identical selector already exists, replace it's contents
+	* @opt boolean replace    If an identical selector already exists, replace it's contents
 	*
 	* @throw Error 		If the document is not compatible with creating rules 
 	*

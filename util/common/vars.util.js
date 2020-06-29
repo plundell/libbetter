@@ -77,7 +77,9 @@ module.exports=function export_vX({varType,logVar,_log}){
 				return expectedType;
 			}
 		}
-
+		if(arguments.length<2)
+			_log.throw(`BUGBUG: checkType() expected at least 2 args, got ${arguments.length}:`,arguments);
+		
 		var errStr=(typeof falseOrCaller=='string' ? falseOrCaller+'() e' : 'E') +"xpected ";
 		var gotType=varType(got);
 		switch(varType(expectedType)){
@@ -149,11 +151,13 @@ module.exports=function export_vX({varType,logVar,_log}){
 
 	function checkTypes(expArr,gotArr, falseOrCaller){
 		if(varType(expArr)!='array')
-			_log.throwType("arg #1 to be an array",expArr);
+			_log.throw("BUGBUG: checkTypes() expected arg#1 to be an array, got:",logVar(expArr));
+
 		switch(varType(gotArr)){
 			case 'object':
 				gotArr=Object.values(gotArr); //so we can pass 'arguments'. NOTE: that it only contains explicitly passed
 											  //args, not default values or omitted
+				break;
 			case 'array':
 				//It's important we don't alter the array, in case it's used again
 				gotArr=[].concat(gotArr);
@@ -162,14 +166,15 @@ module.exports=function export_vX({varType,logVar,_log}){
 				_log.throw("BUGBUG: checkTypes() expected arg#2 to be an array, got:",logVar(gotArr));
 		}
 
+		//Make sure we have the same number in each array
 		var diff=expArr.length-gotArr.length
 		if(diff>0){
 			//Fill second array with undefined (needed when passing 'arguments' where some where omitted. NOTE: default values
 			//are not included in arguments object)
 			gotArr.push.apply(gotArr,new Array(diff));
 		}else if(diff<0){
-			//splice second array, ie. we only check as far as we've been told
-			gotArr.splice(expArr.length,Math.abs(diff));
+			//slice second array, ie. we only check as far as we've been told
+			gotArr=gotArr.slice(0,expArr.length);
 
 		}
 
@@ -206,8 +211,8 @@ module.exports=function export_vX({varType,logVar,_log}){
 	* @param object obj 	Any object
 	* @param object types 	Keys are same as obj, values are expected types (string or array or strings)
 	*
-	* @throws TypeError 	If args passed to this func is wrong
-	* @throws TypeError 	@see $falseOrCaller
+	* @throws <ble TypeError> 	If args passed to this func is wrong (incl. if arg#1 isn't an object), @see checkType
+	* @throws <ble EINVAL> 		If any of the props are the wrong type 	
 	* @return object|false
 	*/
 	function checkProps(obj,types,falseOrCaller){
@@ -225,16 +230,19 @@ module.exports=function export_vX({varType,logVar,_log}){
 						return false;
 					}
 					
-					var msg=` prop '${key}'`;
+					//If we're here we're going to throw...
+					var msg=` prop '${key}'`,code;
 					if(obj.hasOwnProperty(key)){
 						msg='Bad'+msg+': '+logVar(obj[key]);
+						code='EINVAL';
 					}else{
 						msg='Missing'+msg;
+						code='EMISSING';
 					}
 					if(falseOrCaller){
 						msg=falseOrCaller+'(): '+msg;
 					}
-					_log.makeError(msg,err).throw();
+					_log.throwCode(code,msg,err);
 				}
 
 			}
@@ -630,9 +638,6 @@ module.exports=function export_vX({varType,logVar,_log}){
 			}
 
 			//At this point we know we're going to fail, the question is just what we log and what we return
-
-
-//STOPSTOP 2020-05-08: why is the whole string being printed and not trimmed?!?!
 
 
 

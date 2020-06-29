@@ -22,6 +22,7 @@ module.exports=function export_aX({_log,vX}){
 	    ,'anyArrayOverlap':anyArrayOverlap
 	    ,'pushToNestedArray':pushToNestedArray
 	    ,'filterSplit':filterSplit
+	    ,makeArray
 	};
 
 
@@ -296,6 +297,52 @@ module.exports=function export_aX({_log,vX}){
 		}
 	}
 
+	/*
+	* Wrap any item in an array, or turn into an array, or keep as an array (ie. don't double wrap)
+	*
+	* @param any|undefined x 	If undefined (and only if undefined) the returned array will be empty
+	* @return array
+	*/
+	function makeArray(){
+		var array=[];
+		var arrays=Array.from(arguments).forEach(x=>{
+			switch(vX.varType(x)){
+				case 'nodelist':
+					array=array.concat(Array.from(x)); 
+					break;
+				case 'object':
+					let arr=Array.from(x);
+					if(!arr.length){
+						//If the object can't be turned into an array with stuff, just push the object itself
+						array.push(x);
+					}else{
+						array=array.concat(arr); 
+						break;
+					}
+					break;
+				case 'array':
+					array=array.concat(x); 
+					break;
+				case 'undefined':
+					break;
+				 //for clarity we list the rest
+				case 'string':
+				case 'number':
+				case 'boolean':
+				case 'function':
+				case 'null':
+				case 'ble':
+				case 'error':
+				case 'promise':
+				case 'node':
+				case 'bigint':
+				case 'symbol':
+				default:
+					array.push(x);
+			}
+		})
+		return array;
+	}
 
 	return _exports;
 }

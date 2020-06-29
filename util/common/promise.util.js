@@ -7,7 +7,7 @@
 */
 'use strict'; 
 
-module.exports=function export_pX({_log,vX}){
+module.exports=function export_pX({_log,vX,aX}){
 
 
 	//Export
@@ -22,6 +22,7 @@ module.exports=function export_pX({_log,vX}){
 		,'InspectablePromise':InspectablePromise
 		,'promiseTimeout':promiseTimeout
 		,'rejectTimeout':rejectTimeout
+		,addTimeoutCallback
 		,'exposedPromise':exposedPromise
 		,'groupPromises':groupPromises
 		,'thenCallback':thenCallback
@@ -428,39 +429,118 @@ module.exports=function export_pX({_log,vX}){
 
 
 
+	/*
+	* Register a callback that runs if a promise hasn't finished within a timeout
+	*
+	* @param @anyorder function callback
+	* @param @anyorder number timeout
+	* @param @anyorder <Promise> promise
+	*
+	* @return number 		The id required to remove the timeout
+	*/
+	function addTimeoutCallback(...args){
+		var callback=aX.getFirstOfType(args,'function')
+			,timeout=aX.getFirstOfType(args,'number')
+			,promise=aX.getFirstOfType(args,'promise')
+		;
+		cX.checkTypes(['function','number','promise'],[callback,timeout.promise]);
 
+		//Create a flag that get's undone by the finishing of the promise...
+		var finished=false;
+		thenCallback(promise,()=>finished=true);
+
+		//Run a timeout and if the flag hasn't been undone, call the callback
+		return setTimeout(()=>{
+			if(!finished)
+				try{callback()}catch(err){log.error(err)}
+		},timeout)
+	}
 
 
 	/*
-	* Add timeout ability given the resolve/reject functions of a Promise. Said timeout can easily be cleared (@see return)
+	* Add timeout to an existing promise, either by replacing the resolve/reject functions or the promise itself. 
+	* Said timeout can easily be cleared (@see return)
 	*
+	* @param number timeout 	Number of ms until timeout. NOTE: can be passed in any order
+	*
+	* @opt function resolve
+	* @opt function reject
 	* @return object{resolve,reject,clear} 	Returns 3 functions, new resolve and reject, and a clear timeout
+	*   
+	*   -or-
+	* @opt <Promise> promise
+	* @return object{promise,clear} 		Returns a new promise and a function to clear timeout
 	*/
-	function rejectTimeout(resolve,reject,timeout){
-		vX.checkTypes(['function','function','number'],[resolve,reject,timeout]);
+	function rejectTimeout(...args){
+		var timeout=aX.getFirstOfType(args,'number','extract');
 
-		// console.log('setting timeout');
-		let id=setTimeout(()=>{
-			// console.log('rejected about to time out');
-			reject('timeout');
-		},timeout);
-
-		var clear=()=>{clearTimeout(id);};
-		
-		// console.log('creating new resolve');
-		var newResolve=function(x){
-			// console.log('new resolve called');
-			clearTimeout(id);
-			resolve(x);
+		//Allow for the 2 different arg types
+		if(vX.checkType(['function','promise'],args[0])=='promise'){
+			//here we'll be adding a step in the promise ladder and return the new promise
+			return timeout_replacePromise(timeout, args[0]);
+		}else{
+			//here we'll be replacing the two functions. 
+			args.unshift(timeout);
+			return timeout_replaceFuns.apply(this,args);			
 		}
 
-		var newReject=function(x){
-			clearTimeout(id);
-			reject(x);	
-		}
-		// console.log('returning new resolve');
-		return {resolve:newResolve,reject:newReject,clear:clear};
 	}
+	function timeout_replacePromise(timeout,promise){
+		//Create a promise that rejects after the timeout, and a function that clears it
+		var id
+			,timeoutPromise=new Promise((resolve,reject)=>{
+				id=setTimeout(()=>{
+					//Reject this promise...
+					reject('timeout');
+
+					//...but that means the other promise is still pending and if it rejects we may never see that error, so make sure to log it
+					promise.catch(err=>_log.makeError(err).addHandling("This rejection comes from an already timed out promise").exec());
+
+				},timeout);
+			})
+			,clear=()=>{clearTimeout(id);}
+		;
+
+		
+		promiseAlways(promise,clear)
+
+		//Race that and the original promise, creating a new one that rejects with 'timeout' if the old hasn't already finished
+		var newPromise=Promise.race([
+			promiseAlways(promise,clear) //clear the timeout when the old finishes
+			,timeoutPromise
+		]);
+
+		return {clear,promise:newPromise};
+	}
+	function timeout_replaceFuns(timeout,resolve,reject){
+			//Make sure we've got both resolve and reject
+			vX.checkType('function',reject);
+
+
+			// console.log('setting timeout');
+			let id=setTimeout(()=>{
+				// console.log('rejected about to time out');
+				reject('timeout');
+			},timeout);
+
+			let clear=()=>{clearTimeout(id);};
+			
+			// console.log('creating new resolve');
+			let newResolve=function(x){
+				// console.log('new resolve called');
+				clearTimeout(id);
+				resolve(x);
+			}
+
+			let newReject=function(x){
+				clearTimeout(id);
+				reject(x);	
+			}
+			// console.log('returning new resolve');
+			return {resolve:newResolve,reject:newReject,clear:clear};
+	}
+
+
 
 
 	/*
@@ -485,7 +565,7 @@ module.exports=function export_pX({_log,vX}){
 
 
 		if(typeof timeout=='number'){
-			Object.assign(ret,rejectTimeout(ret.resolve,ret.reject,timeout));
+			Object.assign(ret,rejectTimeout(timeout,ret.resolve,ret.reject));
 		}
 
 
