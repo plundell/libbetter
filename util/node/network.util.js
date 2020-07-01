@@ -54,6 +54,8 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 
 		,'groupSignalsBySSID':groupSignalsBySSID
 		,'getIfaceState':getIfaceState
+		,listWifiInterfaces
+		,isWifiIface
 		,'getIpAddresses':getIpAddresses
 		,'isConfigured':isConfigured
 		,'monitor':monitor
@@ -144,7 +146,8 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 	* @param boolean details. 		Default false/sync. If true this method will return a promise, but more
 	*								details for each interfaces
 	*
-	* @return object|Promise(object,err) 	Keys are device names, values are {mac:string,freq:number}
+	* @return object|Promise(object,err) 	Keys are device names, values without details are {dev:string,mac:string,connected:boolean}
+	*											and with details @see iw_getIfaceStatus
 	* @sync/@async
 	*/
 	function iw_listInterfaces(details=false){
@@ -1607,7 +1610,13 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 	}
 
 
+	function listWifiInterfaces(){
+		return Object.keys(iw_listInterfaces);
+	}
 
+	function isWifiIface(iface){
+		return listWifiInterfaces().includes(iface);
+	}
 
 	/* 
 	 Link networking 101:
@@ -1717,54 +1726,97 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 		var interfaces=os.networkInterfaces();
 		var iface;
 
-		//Filter on address family
+		//First we parse the passed in flags
 		var family=cX.extractItems(flags,[4,6]).find(f=>f); //first mentioned family is included
-		if(family)
+		var prop=cX.extractItems(flags,['address','netmask','family','mac','internal','cidr']).find(p=>p); //first mentioned prop 
+
+		var exclude=flags.filter(iface=>iface.substring(0,1)=='!').map(iface=>iface.substring(1));
+
+		//A shorthand...
+		if(cX.extractItem(flags,'first')){
+			exclude.push('lo')
+			var firstIface=true;
+			var firstAddress=true;
+		}else{
+			firstIface=cX.extractItem(flags,'firstIface');
+			firstAddress=cX.extractItem(flags,'firstAddress');
+		}
+
+		//Any strings now remaining among the flags are assumed to be interface names we want to include
+		var include=flags.filter(iface=>iface.substring(0,1)!='!')
+
+
+		var entry=log.makeEntry('debug',"Got ip addresses:");
+
+		//Now the actual processing:
+
+		//Filter on address family
+		if(family){
+			entry.addHandling('Only including IPv'+family);
 			for(iface in interfaces) interfaces[iface]=interfaces[iface].filter(a=>a.family=='IPv'+family);
+		}
+
 
 		//Get only specific prop for each iface
-		var prop=cX.extractItems(flags,['address','netmask','family','mac','internal','cidr']); //first mentioned prop 
-		if(prop)
+		if(prop){
+			entry.addHandling(`Getting prop '${prop}'`);
 			for(iface in interfaces){
 				interfaces[iface].forEach((a,i)=>interfaces[iface][i]=a[prop]);
 			} 
-		
-
-		//shortcut
-		if(cX.extractItem(flags,'first'))
-			flags.push('!lo', 'firstAddress', 'firstIface')
-
+		}
 
 		//Only keep first address. Replaces array of addresses with single address (which  may be string or object
 		//depending on if specific prop has been selected ^)
-		if(cX.extractItem(flags,'firstAddress'))
-			for(iface in interfaces) interfaces[iface]=interfaces[iface][0];
-
+		if(firstAddress)
+			entry.addHandling(`Only keeping first address for each interface`);
+			for(iface in interfaces){
+				interfaces[iface]=interfaces[iface][0];
+			} 
 
 		//If we specified any iface to exclude, remove them
-		var exclude=flags.filter(iface=>iface.substring(0,1)=='!')
-		if(exclude)
-			exclude.forEach(iface=>delete interfaces[iface.substring(1)]);
+		if(exclude){
+			entry.addHandling(`Excluding these interfaces: ${exclude.join(', ')}`);
+			exclude.forEach(iface=>delete interfaces[iface]);
+		}
 		
+		//Now we add the type of interface and the interface name
+		var wifis=listWifiInterfaces();
+		
+//STOPSTOP 2020-07-01: the list of wifis is emtpy
+		log.highlight('red',wifis);
 
-		
-		var firstIface=cX.extractItem(flags,'firstIface');
+
+		for(let iface in interfaces){
+			//For same handling we turn everything into an array (don't worry, it doesn't get saved)
+			cX.makeArray(interfaces[iface]).forEach(block=>{
+				if(typeof block=='object'){
+					block.iface=iface;
+					block.type=wifis.includes(iface)?'wireless':'wired'
+				}
+			})
+		}
+
 		//If we specified any iface to include, remove all others
-		var include=flags.filter(iface=>iface.substring(0,1)!='!')
 		switch(include.length){
 			case 0:
 				break;
 			case 1:
-				return interfaces[include[0]]; //single address (which can be array or object/string, see ^^)
+				let iface=include[0];
+				entry.addHandling(`Returning single interface: ${iface}`).addExtra(interfaces[iface]).exec();
+				return interfaces[iface]; //depending on $prop this could be a object/string/array, see ^^
 			default:
-				cX.subObj(interfaces,include);break; //object where keys are interface names
+				entry.addHandling(`Only keeping these interfaces: ${include.join(', ')}`);
+				interfaces=cX.subObj(interfaces,include);
 		}
 
-		//Finally, if we just want a single iface...
+		//Finally, if we just want the first iface...
 		if(firstIface){
-			return interfaces[Object.keys(interfaces)[0]];
-		}else
-			return interfaces
+			let iface=Object.keys(interfaces)[0];
+			entry.addHandling(`Returning first interface: ${iface}`)
+			interfaces=interfaces[iface]
+		}
+		entry.addExtra(interfaces).exec();
+		return interfaces
 	}
 
 	/*
@@ -2013,7 +2065,7 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 
 
 			//Regardless what triggered the buffer ^, check everything
-			this.on('_buffer',function onMonitorBuffer(obj){
+			var onMonitorBuffer=(obj)=>{
 				try{
 					try{
 						var cidrs=getIpAddresses('cidr', this.iface)
@@ -2083,17 +2135,18 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 				    //Now emit the changes
 				    changes.forEach(args=>{
 				    	this.debug(`${this.iface} ${args.join(',')}`);
-				    	this.emit.apply(self,args);
+				    	this.emit.apply(this,args);
 				   	})
 
-				   	//If there are any changes, also emit a 'change' event
+				   	//If there are any changes, also emit a 'status' event
 				   	if(changes.length)
-				   		this.emit(self,changes,connected);
+				   		this.emit('status',this,changes,connected);
 
 				}catch(err){
 					this.log.error(err);
 				}
-			});//on buffer
+			};
+			this.on('_buffer',onMonitorBuffer)
 
 		}catch(err){
 			this.log.error("Problem starting monitor:",err);

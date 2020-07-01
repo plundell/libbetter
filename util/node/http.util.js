@@ -184,16 +184,19 @@ module.exports=function export_httpX({BetterLog,cX,fsX,netX,pump,...dep}){
 		if(!obj.host && !obj.hostname)
 			log.throwCode('EFAULT',`No host found in the url (original, parsed):`,url,obj);
 
-		switch('mode'){
+		switch(mode){
 			case 'slim':
 				return cX.subObj(obj,['protocol','hostname','port','path'],'hasOwnNonNullProperty');
 			case 'string':
 			case 'href':
 				return obj.href;
 			case 'full':
+				break;
 			default: //don't throw on faulty mode
-				return obj;
+				log.warn(`Invalid mode '${mode}', defaulting to 'full'`);
 		}
+		
+		return obj;
 
 	}
 
@@ -319,7 +322,7 @@ module.exports=function export_httpX({BetterLog,cX,fsX,netX,pump,...dep}){
 	* @param array opts
 	* @return object 		The options object ready to be passed to request()
 	*/
-	function getShorthandOptions(method,opts){
+	function shorthandOptions(method,opts){
 		return Object.assign(
 			{'_followRedirects':1}
 			,parseOptions(opts)
@@ -338,7 +341,7 @@ module.exports=function export_httpX({BetterLog,cX,fsX,netX,pump,...dep}){
 	* @async
 	*/
 	function head(url,...opts){
-		return request(url,getShorthandOptions('HEAD',opts));
+		return request(url,shorthandOptions('HEAD',opts));
 	//2020-06-15: Do we need to do any further parsing of the head?
 	}
 
@@ -353,7 +356,7 @@ module.exports=function export_httpX({BetterLog,cX,fsX,netX,pump,...dep}){
 	* @async
 	*/
 	function get(url,...opts){
-		return request(url,getShorthandOptions('GET',opts));
+		return request(url,shorthandOptions('GET',opts));
 	}
 
 
@@ -404,7 +407,8 @@ module.exports=function export_httpX({BetterLog,cX,fsX,netX,pump,...dep}){
 			//Decide if it's https or http, then initiate the request. 
 			//Remember: unlike get(), with request() you have to call .end() to tell the remote server that 
 			//  "yup, that was the whole request, please give me an answer now!"
-			log.info("Requesting "+x.request.href,x.request.headers);
+			// log.makeEntry('info',"Requesting: ",x.request).addFrom().exec();
+			log.debug("Requesting: ",x.request);
 			let httpX=(x.request.protocol=='https:' ? https : http);
 			let request=httpX.request(x.request);
 
@@ -452,6 +456,7 @@ module.exports=function export_httpX({BetterLog,cX,fsX,netX,pump,...dep}){
 				){
 					log.makeError(`Too many redirects (limit ${options._followRedirects||0}):`,redirects).throw();
 				}else{
+					log.debug("Redirecting...")
 					return request(redirect,options,payload,redirects); //Make recursive call
 				}
 			}

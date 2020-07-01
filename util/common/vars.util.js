@@ -159,8 +159,9 @@ module.exports=function export_vX({varType,logVar,_log}){
 											  //args, not default values or omitted
 				break;
 			case 'array':
+			case 'arguments':
 				//It's important we don't alter the array, in case it's used again
-				gotArr=[].concat(gotArr);
+				gotArr=Array.prototype.slice.call(gotArr,0);
 				break;
 			default:
 				_log.throw("BUGBUG: checkTypes() expected arg#2 to be an array, got:",logVar(gotArr));

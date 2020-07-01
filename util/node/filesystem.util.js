@@ -1612,8 +1612,16 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
     }
 
 
-
-    function storeSmarty(filepath,smarty){
+    /*
+	* Store an existing smarty
+	*
+	* @param string filepath
+	* @param <SmartProto> smarty
+	* @opt flag 'noRead' 			If passed, nothing will be read from disk until ._read() is called
+	*
+	* @return $smarty
+    */
+    function storeSmarty(filepath,smarty,noRead=false){
     	var [,name]=cX.checkTypes(['string',['<SmartArray>','<SmartObject>']],[filepath,smarty]);
 
     	//Smarties can only be stored once...
@@ -1625,7 +1633,9 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
     		log.throw("Cannot store smarty when prop '_detach' is already defined")
     	if(smarty.has('_unlink'))
     		log.throw("Cannot store smarty when prop '_unlink' is already defined")
-    	smarty._private.reservedKeys.push('_detach','_unlink');
+    	if(smarty.has('_read'))
+    		log.throw("Cannot store smarty when prop '_read' is already defined")
+    	smarty._private.reservedKeys.push('_detach','_unlink','_read');
 
     	//Create the storage
         smarty._private.storage=new StoredItem(
@@ -1672,24 +1682,17 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
         });
 
 
-        //Finally...
-        if(smarty._private.storage.stat.exists){
-	        //...load initial data from storage...
-	        var data=smarty._private.storage.read();
+        Object.defineProperty(smarty,'_read',{value:function readFromStorage(){
+	        if(smarty._private.storage.stat.exists){
+		        //Load initial data from storage and set anything not already set
+		        smarty.fillOut(smarty._private.storage.read());
+	        }else{
+	        	log.note("No previous data/file found. It will be created when something is set on this smarty @",smarty._private.storage.filepath);
+	        }
+        }});
 
-	        //...but any data already on smarty takes presidence...
-	        var l=smarty.length
-	        if(l)
-	        	var existing=smarty.stupify();
-
-	        smarty.assign(data);
-	        
-	        if(l)
-	        	smarty.assign(existing);
-        }else{
-        	log.note("No previous data/file found. It will be created when something is set on this smarty @",smarty._private.storage.filepath);
-        }
-
+        if(noRead!='noRead')
+        	smarty._read();
         
 
         return smarty;

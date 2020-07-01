@@ -439,11 +439,11 @@ module.exports=function export_pX({_log,vX,aX}){
 	* @return number 		The id required to remove the timeout
 	*/
 	function addTimeoutCallback(...args){
-		var callback=aX.getFirstOfType(args,'function')
-			,timeout=aX.getFirstOfType(args,'number')
-			,promise=aX.getFirstOfType(args,'promise')
+		var callback=aX.getFirstOfType(args,'function')||_log.throwCode("EINVAL","No callback function was passed in.")
+			,timeout=aX.getFirstOfType(args,'number')||_log.throwCode("EINVAL","No timeout delay (number) was passed in.")
+			,promise=aX.getFirstOfType(args,'promise')||_log.throwCode("EINVAL","No promise to add the timeout to was passed in.")
 		;
-		cX.checkTypes(['function','number','promise'],[callback,timeout.promise]);
+		vX.checkTypes(['function','number','promise'],[callback,timeout,promise]);
 
 		//Create a flag that get's undone by the finishing of the promise...
 		var finished=false;
