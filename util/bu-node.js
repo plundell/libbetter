@@ -21,20 +21,43 @@ module.exports=function exportBetterUtil(dep){
 	const BetterEvents = dep.BetterEvents
     const BetterLog = dep.BetterLog
 
+    //The log created in cX is called BetterUtil, but since it's only a part of the node/backend version
+    //of BetterUtil we want to rename it cX
+    cX._log.changeName('cX');
+
+
+
+
+    //Some node-version functions moved from cX
+    cX.timerStart=function timerStart(){
+        return process.hrtime();
+    }
+
+    cX.timerStop=function timerStop(start,format){
+        var durr=process.hrtime(start)
+        	,nano=(durr[0]*1000000000)+durr[1]
+        ;
+        return cX.formatNano(nano,format);
+    }
+
+
+
+
+
 	const sX=require('./node/stream.util.js')({cX});
 	const cpX=require('./node/child_process.util.js')({BetterLog,cX,sX});
 	const fsX=require('./node/filesystem.util.js')({BetterLog,cpX,cX});
 	
+	const netX=require('./node/network.util.js')({BetterEvents,BetterLog,cX,cpX,fsX});
+
 	/*
 	* Polyfil for external package https://www.npmjs.com/package/pump
 	*/
 	const pump =dep.pump || require('./node/pump.polyfill.js');
-	const httpX=require('./node/http.util.js')({BetterLog,cX,fsX,pump});
+	const httpX=require('./node/http.util.js')({BetterLog,cX,fsX,pump,netX});
 	
-	const os=require('os');
-	const netX=require('./node/network.util.js')({BetterEvents,BetterLog,cX,cpX,fsX,os});
 
-	return {cX,sX,cpX,fsX,httpX,netX,os};
+	return {cX,sX,cpX,fsX,httpX,netX};
 }
 
 

@@ -29,13 +29,15 @@ module.exports=function export_stX({_log,vX}){
 	    ,splitAt
 	    ,indexWords
 	    ,linuxTableToObjects
-	    ,wrapInBashColor
 	    ,progressBar
 	    ,queryStrToObj
 		,dashToCamel
 		,randomString
 		,getUniqueString
 		,safeReplace
+		,getBashColor
+		,wrapInBashColor
+		,wrapSubstrInBashColor
 	};
 
 
@@ -135,20 +137,33 @@ module.exports=function export_stX({_log,vX}){
 	/*
 	* More capable substring function, able to start from end of string
 	*/
-	function substring(str,start,length){
-		vX.checkType('string',str);
-		if(start>str.length)
+	function substring(str,startIndex,length){
+		vX.checkTypes(['string','number',['number','undefined']],str);
+		//If it starts after the string ends, then return nothing
+		if(startIndex>str.length)
 			return '';
 		
-		if(start<0){
-			start=str.length+start;
+		//A negative start means start from the end
+		if(startIndex<0){
+			startIndex=str.length+startIndex; 
 		}
 
-		var finish=str.length;
-		if(typeof length=='number')
-			Math.min(start+length, str.length);
+
+		if(length>0){
+			var endIndex=Math.min(startIndex+length, str.length); //end index
+		}else if(length<0){
+			endIndex=str.length+length
+			
+			//If ending before we start... empty string
+			if(endIndex<startIndex)
+				return ''
+		}else{
+			//The default is to grab the rest of the string
+			endIndex=str.length; //end index
+		}
+	
 		
-		return str.substring(start,finish)
+		return str.substring(startIndex,endIndex)
 	}
 
 
@@ -210,6 +225,7 @@ module.exports=function export_stX({_log,vX}){
 	* @return string
 	*/
 	function replaceAll(target,search,replacement){
+		vX.checkTypes(['string','string','string'],arguments)
 		if(target.length<40){
 			//This is slower than using RegExp, but it does not rely on the search string being properly escaped, 
 			//and for a shorter string it may be quicker not to have to escape the search string
@@ -452,56 +468,7 @@ module.exports=function export_stX({_log,vX}){
 
 
 
-	var bashColors={
-		//Color			Text 	Background
-		'black'			:['30'	,'40']
-		,'red'			:['31'	,'41']
-		,'green'		:['32'	,'42']
-		,'yellow'		:['33'	,'43']
-		,'blue'			:['34'	,'44']
-		,'magenta'		:['35'	,'45']
-		,'cyan'			:['36'	,'46']
-		,'white'		:['37'	,'47']
-		,'brightblack'	:['90'	,'100']
-		,'brightred'	:['91'	,'101']
-		,'brightgreen'	:['92'	,'102']
-		,'brightyellow'	:['93'	,'103']
-		,'brightblue'	:['94'	,'104']
-		,'brightmagenta':['95'	,'105']
-		,'brightcyan'	:['96'	,'106']
-		,'brightwhite'	:['97'	,'107']
-	}
-
-			
-
-
-	function wrapInBashColor(str,f,b){
-		var c;
-		if(typeof f=='string'){
-			f=f.toLowerCase().replace(' ','')
-			if(bashColors.hasOwnProperty(f)){
-				c=bashColors[f][0];
-				str='\x1b['+c+'m'+str
-			}
-		}
-
-		if(typeof b=='string'){
-			b=b.toLowerCase().replace(' ','')
-			if(bashColors.hasOwnProperty(b)){
-				c=bashColors[b][1];
-				str='\x1b['+c+'m'+str
-			}
-		}
-
-		if(c)
-			str+='\x1b[0m';
-
-		return str;
-	}
-
-
-
-	function progressBar(progress,totalLength=10,color=false,fill='x',empty='.'){
+	function progressBar(progress,totalLength=10,color=null,fill='x',empty='.'){
 		var prog=Math.round(progress*totalLength),rest=totalLength-prog
 		fill=fill.repeat(prog);
 		if(color)
@@ -625,6 +592,62 @@ module.exports=function export_stX({_log,vX}){
 		    ,end=start+remove.length
 		; 
 		return source.substr(0,start)+add+source.substr(end);
+	}
+
+
+
+
+	const bashColors={
+		'black':30      
+		,'red':31      
+		,'green':32      
+		,'yellow':33      
+		,'blue':34      
+		,'magenta':35      
+		,'cyan':36      
+		,'white':37  
+	}    
+		
+	function getBashColor(color){
+		if(vX.checkType(['string','number'],color)=='number'){
+			// Just assume it's right
+			return color;
+		}else{
+			color=color.toLowerCase();
+
+			//First make sure we have a color
+			var base=Object.keys(bashColors).find(c=>color.includes(c));
+			if(!base)
+				_log.throwCode('EINVAL',"This color doesn't exist: "+color);
+			base=bashColors[base];
+
+			//Then check if it's a background
+			if(color.includes('background'))
+				base+=10
+
+			//Then check if it's bright
+			if(color.includes('bright'))
+				base+=60
+
+			return base;
+		}
+
+	}
+
+	/*
+	* Wrap string in bash color codes
+	* @return string
+	*/
+	function wrapInBashColor(str,...colors){
+		return colors.map(c=>'\x1b['+getBashColor(c)+'m').join('')+str+'\x1b[0m';
+	}
+
+	/*
+	* Wrap substring in bash color codes
+	* @return string
+	*/
+	function wrapSubstrInBashColor(str,start,stop,...colors){
+		return str.substr(0,start)+wrapInBashColor(str.substr(start,stop-start),...colors)+str.substr(stop);
 	}
 
 

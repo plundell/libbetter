@@ -339,39 +339,90 @@ module.exports=function export_oX({_log,vX}){
 	* Get specific keys from an object, returning a new object
 	*
 	* @param object obj
-	* @param mixed 	filter 			A single key, an array of keys, or a function to validate keys
-	* @param bool excludeMissing 	If true, keys that are not found on obj are not included on returned object. Else
-	*								the returned object will have that key with value undefined
+	* @param mixed filter 		A single key, an array of keys, or a function to validate keys
+	* @opt string mode 			Available options are (see function for legacy equivilents): 
+	*			'includeAll'            *default* - Include all requested keys (even if their value is undefined or comes from prototype chain)
+	*			'isDefined'                       - Include requested keys from anywhere along the prototype chain IF they are defined
+	*			'isNotNull'						  - Like ^ but must also !=null
+	*			'hasOwnProperty'                  - Include requested keys if they're set on $obj
+	*			'hasOwnDefinedProperty'           - Include requested keys if they're set on $obj AND are defined
+	*			'hasOwnNotNullProperty'           - Like ^ but must also !=null
+	*
 	* 
 	* @throws TypeError
 	* @return object
 	*/
-	function subObj(obj,filter, excludeMissing=false){
-		var types=vX.checkTypes([['array','object'],['string','number','array','function']],[obj,filter])
+	function subObj(obj,filter, mode='includeAll'){
+		var types=vX.checkTypes([['array','object'],['string','number','array','function','object']],[obj,filter])
 
-		if(types[1]=='function'){
-			var keys=Object.entries(obj).filter(keyvalue=>filter(keyvalue[0],keyvalue[1])).map(keyvalue=>keyvalue[0]);
-			excludeMissing=false; //nothing to exclude
-		}else if(types[1]!='array'){
-			return obj[filter];
-		}else
-			keys=filter
-
-		var rObj={};
-		if(excludeMissing){
-			keys.forEach(key=>{
-				if(obj.hasOwnProperty(key))
-					rObj[key]=obj[key]
-			})
-		}else{
-			keys.forEach(key=>rObj[key]=obj[key])
+		switch(types[1]){
+			case 'function':
+				var keys=Object.entries(obj).filter(keyvalue=>filter(keyvalue[0],keyvalue[1])).map(keyvalue=>keyvalue[0]);
+				mode='includeAll'; //Since the function is filtering, everything it keeps we include...
+				break;
+			case 'number':
+			case 'string':
+				return obj[filter];
+			case 'object':
+				keys=Object.keys(filter);
+				break;
+			case 'array':
+				keys=filter
 		}
+		
+		var rObj=types[0]=='array'?[]:{};
+		switch(mode){
+			case true: //for legacy
+			case 'excludeMissing': //legacy
+			case 'hasOwnProperty':
+				keys.forEach(key=>{
+					if(obj.hasOwnProperty(key)){
+						rObj[key]=obj[key] //include keys set on the object (but their values MAY be undefined)
+					}
+				})
+				break;
+			case 'hasOwnDefinedProperty':
+				keys.forEach(key=>{
+					if(obj.hasOwnProperty(key) && obj[key]!=undefined){
+						rObj[key]=obj[key] //only include defined keys set directly on the object
+					}
+				})
+				break;
+			case 'hasOwnNotNullProperty':
+			case 'hasOwnNonNullProperty':
+				keys.forEach(key=>{
+					if(obj.hasOwnProperty(key) && obj[key]!=undefined && obj[key]!=null){
+						rObj[key]=obj[key] //only include defined keys set directly on the object
+					}
+				})
+				break;
+			case 'isDefined':
+				keys.forEach(key=>{
+					if(obj[key]!=undefined){ //this can come from anywhere on the prototype chain
+						rObj[key]=obj[key]
+					}
+				})
+				break;
+			case 'isNotNull':
+			case 'isNonNull':
+				keys.forEach(key=>{
+					if(obj[key]!=undefined && obj[key]!=null){ //this can come from anywhere on the prototype chain
+						rObj[key]=obj[key]
+					}
+				})
+				break;
+			case 'includeAll':
+			default:
+				keys.forEach(key=>rObj[key]=obj[key]) //this can come from anywhere on the prototype chain AND be undefined
+		}
+
 
 		return rObj;
 	}
 
-	function extract(obj,filter, excludeMissing){
-		var data=subObj(obj,filter,excludeMissing);
+
+	function extract(obj,filter, mode){
+		var data=subObj(obj,filter,mode);
 
 		if(Array.isArray(filter)||typeof filter=='function')
 			Object.keys(data).forEach(key=>delete obj[key]);
@@ -380,6 +431,8 @@ module.exports=function export_oX({_log,vX}){
 
 		return data;
 	}
+
+
 
 	function emptyObject(obj){
 		return extract(obj,Object.keys(obj));
@@ -403,9 +456,9 @@ module.exports=function export_oX({_log,vX}){
 
 
 		if(_extract)
-			obj=extract(obj,keys,true)
+			obj=extract(obj,keys,'hasOwnProperty')
 		else
-			obj=subObj(obj,keys,true)
+			obj=subObj(obj,keys,'hasOwnProperty')
 
 		return Object.values(obj).find(crit);
 	}
@@ -426,6 +479,7 @@ module.exports=function export_oX({_log,vX}){
 				case 'TypeError':
 					throw err;
 				case 'EFAULT':
+				case 'EMISMATCH':
 					return false;
 				default:
 					log.throwCode("BUGBUG",'nestedGet() threw an unexpected error:',err);
@@ -445,8 +499,8 @@ module.exports=function export_oX({_log,vX}){
 	*											true=>the last existing object will be returned and the keypath reflects
 	*											the remaining keys
 
-	* @throws <ble TypeError> 				
-	* @throws <ble EFAULT> 		If there is a non-object along keypath
+	* @throws <ble TypeError> 		If $keypath is not an array
+	* @throws <ble EMISMATCH> 		If there is a non-object along keypath
 	*
 	* @return mixed|[mixed,false|array]  	The requested value, or @see $returnLastObject
 	*/
@@ -459,7 +513,7 @@ module.exports=function export_oX({_log,vX}){
 			//Starting this loop means we're trying to go down one level...
 			if(typeof subobj!='object')
 				//...having a non-object means that's impossible, so throw an error
-				_log.throwCode('EFAULT',`Cannot get nested value, non-object @ ${address.join('.')}:`,subobj, obj);
+				_log.throwCode('EMISMATCH',`Cannot get nested value, non-object @ ${address.join('.')}:`,subobj, obj);
 
 			else if(!subobj.hasOwnProperty(keypath[0])){
 				//...having nothing also means that's impossible, but here we offer an option, see arg #3
@@ -490,7 +544,11 @@ module.exports=function export_oX({_log,vX}){
 	* @param mixed value 		
 	* @param bool create 		Default false. If true the path will be created (with objects only)
 	*
-	* @throws TypeError 		See nestedGet.
+	* @throws TypeError 		If $keys is not an array
+	* @throws EINVAL 			If $keys is empty
+	* @throws EFAULT 			The nested object doesn't exist, and we're not creating
+	* @throws EMISMATCH 		Somewhere along the path is a non-object
+	*
 	* @return mixed  			The value set
 	*/
 	function nestedSet(obj,keys,value,create=false){
@@ -499,9 +557,9 @@ module.exports=function export_oX({_log,vX}){
 		vX.checkType('array',keys); //throw typeerror
 		var key=keys.pop();
 		if(!key)
-			_log.throw("No keys specified, cannot set value on object: ",value,obj);
+			_log.throwCode("EINVAL","No keys specified, cannot set value on object: ",value,obj);
 
-		//For logging vv, we need an un-altered keys array so we can determine where a nested value waa
+		//For logging vv, we need an un-altered keys array so we can determine where a nested value was
 		var _keys=vX.copy(keys);
 
 		//Get the nested object we'll be setting on (also works if $keys are now empty)
@@ -516,18 +574,48 @@ module.exports=function export_oX({_log,vX}){
 			}
 			
 		}else if(keys.length){
-			_log.makeError(`Not creating @ '${address}':`,obj).throw();
+			_log.makeCode('EFAULT',`Entire path didn't exist. Not creating remaining @ '${address}':`,obj).throw();
 		}
 			
 
 		if(typeof subobj!='object') //array or object works
-			_log.throw(`Not an object @ '${address}':`,obj)
+			_log.throwCode('EMISMATCH',`Halfway down the nested objects we encountered a non-object @ '${address}':`,obj)
 		
 
 		//If we're still running here. obj will be the object we're setting on, key the prop we're setting and value 
 		//the value, so just get on with it and return
 		return subobj[key]=value;
 	}
+
+	/*
+	* Delete a nested key
+	*
+	* @param obj array|object
+	* @param keys array 		Array of keys, each pointing to one level deeper. NOTE: this array is altered
+	*
+	* @throws TypeError 		If $keys is not an array
+	* @throws EINVAL 			If $keys is empty
+	* @throws EMISMATCH 		Somewhere along the path is a non-object
+	*
+	* @return any 				The old value
+	*/
+	function nestedDelete(obj,keys){
+		vX.checkType('array',keys); //throw typeerror
+		var key=keys.pop();
+		if(!key)
+			_log.throwCode("EINVAL","No keys specified, what exactly do you want to delete from: ",obj);
+
+		//Get the last object... and if that doesn't exist then no problems, the thing we're trying to delete is already gone
+		var subobj=nestedGet(obj,keys);
+		if(subobj==undefined)
+			return undefined;
+
+		//Now get the old value, then delete, then return
+		var old=subobj[key];
+		delete subobj[key];
+		return old;
+	}
+
 
 
 	/*

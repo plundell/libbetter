@@ -30,7 +30,7 @@ module.exports=function exportBetterUtilCommon(dep){
 		throw new Error("BUGBUG: The BetterLog constructor didn't have prop-funcs varType and logVar");
 	}
 
-	const _log=new BetterLog('cX')
+	const _log=new BetterLog('BetterUtil');
 
 
 
@@ -38,7 +38,7 @@ module.exports=function exportBetterUtilCommon(dep){
 	const aX=require('./common/arr.util.js')({vX,_log});
 	const fX=require('./common/functions.util.js')({vX,_log,aX});
 	const oX=require('./common/obj.util.js')({vX,_log});
-	const pX=require('./common/promise.util.js')({vX,_log});
+	const pX=require('./common/promise.util.js')({vX,_log,aX});
 	const stX=require('./common/string.util.js')({vX,_log});
 	const mX=require('./common/misc.util.js')({vX,_log, stX});
 	const tX=require('./common/time.util.js')({vX,_log});

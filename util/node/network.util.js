@@ -10,13 +10,11 @@
 * This module helps do networking tasks
 */
 
-module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog,os}){
+module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 
 
-
-
-	const log=typeof BetterLog=='function' ? new BetterLog('netX') :BetterLog;
-
+	const os=require('os');
+	const log=(typeof BetterLog=='function' ? new BetterLog('netX') :BetterLog);
 
 
 	//returned at bottom
@@ -56,6 +54,8 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog,os}){
 
 		,'groupSignalsBySSID':groupSignalsBySSID
 		,'getIfaceState':getIfaceState
+		,listWifiInterfaces
+		,isWifiIface
 		,'getIpAddresses':getIpAddresses
 		,'isConfigured':isConfigured
 		,'monitor':monitor
@@ -70,6 +70,7 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog,os}){
 		,'iwconfig':iwconfig
 		,'validateIp':validateIp
 		,'listeningPorts':listeningPorts
+		,ping
 
 			
 	}
@@ -145,7 +146,8 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog,os}){
 	* @param boolean details. 		Default false/sync. If true this method will return a promise, but more
 	*								details for each interfaces
 	*
-	* @return object|Promise(object,err) 	Keys are device names, values are {mac:string,freq:number}
+	* @return object|Promise(object,err) 	Keys are device names, values without details are {dev:string,mac:string,connected:boolean}
+	*											and with details @see iw_getIfaceStatus
 	* @sync/@async
 	*/
 	function iw_listInterfaces(details=false){
@@ -206,14 +208,14 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog,os}){
 	* @param string iface
 	* @param bool rejectIfDisconnected 	Default false. If true, rejected promise will be returned if not connected
 	*
-	* @return Promise({iface,up,link,connected,ap,ssid,freq,signal,bitrate}, {iface,up,link,connected}|err)
+	* @return Promise({iface,up,link,connected,ap,ssid,freq,signal,bitrate}, << or err)
 	* @async
 	* @not_logged
 	*/
 	function iw_getIfaceStatus(iface,rejectIfDisconnected=false){
 		try{iface=iw_validateIface(iface)}catch(err){return err.reject()}
 
-		var info={iface:iface, connected:false};
+		var info={iface:iface, connected:false, ap:null,ssid:null,freq:null,signal:null,bitrate:null}
 		return getIfaceState(iface)
 			.then(async function _iw_getIfaceStatus(state){
 				try{
@@ -606,7 +608,7 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog,os}){
 				if(typeof confOrSsid=='string')
 					conf={ssid:confOrSsid}				
 				else if(!confOrSsid || typeof confOrSsid!='object' ||!confOrSsid.ssid)
-					return reject(log.makeError('Expected conf object or ssid+pass, got:',confOrSsid,pass).reject('BAD_ARGS'));
+					return reject(log.makeError('Expected conf object or ssid+pass, got:',confOrSsid,pass).reject('EINVAL'));
 				else{
 					conf=confOrSsid
 					if(conf._makeConfObj==true)
@@ -1608,7 +1610,13 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog,os}){
 	}
 
 
+	function listWifiInterfaces(){
+		return Object.keys(iw_listInterfaces);
+	}
 
+	function isWifiIface(iface){
+		return listWifiInterfaces().includes(iface);
+	}
 
 	/* 
 	 Link networking 101:
@@ -1661,8 +1669,8 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog,os}){
 	/*
 	* 
 	* @param @opt ...string flag 	One or more flags. The following are available:
-	*									- <iface>: one or more interface names to include
-	*									- !<iface>: one or more interface names to exclude
+	*									- <iface>: one or more interface names to include (don't include <>)
+	*									- !<iface>: one or more interface names to exclude (don't include <>)
 	*									- One of the prop names: address,netmask,family,mac,internal,cidr, will
 	*										return that prop instead of object for each address block
 	*									- 4 or 6 to only include that family
@@ -1718,53 +1726,97 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog,os}){
 		var interfaces=os.networkInterfaces();
 		var iface;
 
-		//Filter on address family
+		//First we parse the passed in flags
 		var family=cX.extractItems(flags,[4,6]).find(f=>f); //first mentioned family is included
-		if(family)
-			for(iface in interfaces) interfaces[iface]=interfaces[iface].filter(a=>a.family=='IPv'+family);
+		var prop=cX.extractItems(flags,['address','netmask','family','mac','internal','cidr']).find(p=>p); //first mentioned prop 
 
-		//Get only specific prop for each address
-		var prop=cX.extractItems(flags,['address','netmask','family','mac','internal','cidr']); //first mentioned prop 
-		if(prop)
+		var exclude=flags.filter(iface=>iface.substring(0,1)=='!').map(iface=>iface.substring(1));
+
+		//A shorthand...
+		if(cX.extractItem(flags,'first')){
+			exclude.push('lo')
+			var firstIface=true;
+			var firstAddress=true;
+		}else{
+			firstIface=cX.extractItem(flags,'firstIface');
+			firstAddress=cX.extractItem(flags,'firstAddress');
+		}
+
+		//Any strings now remaining among the flags are assumed to be interface names we want to include
+		var include=flags.filter(iface=>iface.substring(0,1)!='!')
+
+
+		var entry=log.makeEntry('debug',"Got ip addresses:");
+
+		//Now the actual processing:
+
+		//Filter on address family
+		if(family){
+			entry.addHandling('Only including IPv'+family);
+			for(iface in interfaces) interfaces[iface]=interfaces[iface].filter(a=>a.family=='IPv'+family);
+		}
+
+
+		//Get only specific prop for each iface
+		if(prop){
+			entry.addHandling(`Getting prop '${prop}'`);
 			for(iface in interfaces){
 				interfaces[iface].forEach((a,i)=>interfaces[iface][i]=a[prop]);
 			} 
-		
-
-		//shortcut
-		if(cX.extractItem(flags,'first'))
-			flags.push('!lo', 'firstAddress', 'firstIface')
-
+		}
 
 		//Only keep first address. Replaces array of addresses with single address (which  may be string or object
 		//depending on if specific prop has been selected ^)
-		if(cX.extractItem(flags,'firstAddress'))
-			for(iface in interfaces) interfaces[iface]=interfaces[iface][0];
+		if(firstAddress)
+			entry.addHandling(`Only keeping first address for each interface`);
+			for(iface in interfaces){
+				interfaces[iface]=interfaces[iface][0];
+			} 
 
-
-		//If we specified any to exclude, remove them
-// console.log('FLAGS before exclude',flags);
-		var exclude=flags.filter(iface=>iface.substring(0,1)=='!')
-		if(exclude)
-			exclude.forEach(iface=>delete interfaces[iface.substring(1)]);
+		//If we specified any iface to exclude, remove them
+		if(exclude){
+			entry.addHandling(`Excluding these interfaces: ${exclude.join(', ')}`);
+			exclude.forEach(iface=>delete interfaces[iface]);
+		}
 		
-
+		//Now we add the type of interface and the interface name
+		var wifis=listWifiInterfaces();
 		
-		//If we specified one or more, remove all others
-		var firstIface=cX.extractItem(flags,'firstIface');
-		var include=flags.filter(iface=>iface.substring(0,1)!='!')
+//STOPSTOP 2020-07-01: the list of wifis is emtpy
+		log.highlight('red',wifis);
+
+
+		for(let iface in interfaces){
+			//For same handling we turn everything into an array (don't worry, it doesn't get saved)
+			cX.makeArray(interfaces[iface]).forEach(block=>{
+				if(typeof block=='object'){
+					block.iface=iface;
+					block.type=wifis.includes(iface)?'wireless':'wired'
+				}
+			})
+		}
+
+		//If we specified any iface to include, remove all others
 		switch(include.length){
 			case 0:
 				break;
 			case 1:
-				return interfaces[include[0]]; //single address (which can be array or object/string, see ^^)
+				let iface=include[0];
+				entry.addHandling(`Returning single interface: ${iface}`).addExtra(interfaces[iface]).exec();
+				return interfaces[iface]; //depending on $prop this could be a object/string/array, see ^^
 			default:
-				cX.subObj(interfaces,include);break; //object where keys are interface names
+				entry.addHandling(`Only keeping these interfaces: ${include.join(', ')}`);
+				interfaces=cX.subObj(interfaces,include);
 		}
+
+		//Finally, if we just want the first iface...
 		if(firstIface){
-			return interfaces[Object.keys(interfaces)[0]];
-		}else
-			return interfaces
+			let iface=Object.keys(interfaces)[0];
+			entry.addHandling(`Returning first interface: ${iface}`)
+			interfaces=interfaces[iface]
+		}
+		entry.addExtra(interfaces).exec();
+		return interfaces
 	}
 
 	/*
@@ -1812,10 +1864,10 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog,os}){
 	/*
 	* @constructor monitor 		Monitor an iface for link up/dn and address add/del
 	*
-	* @param string iface
-	* @param @opt <ChildProcess> 	@see return from getMonitor()
-	* @param @opt <BetterLog> 		If passed, events will be logged, debug-lvl
-	* @param @opt number delay 		The number of ms after a monitor event to check status, default 100 			
+	* @opt string iface
+	* @opt <ChildProcess> 	@see return from getMonitor()
+	* @opt <BetterLog> 		If passed, events will be logged, debug-lvl
+	* @opt number delay 		The number of ms after a monitor event to check status, default 100 			
 	*
 	* @emit connect
 	* @emit disconnect
@@ -1827,197 +1879,56 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog,os}){
 	* @emit ifaceup
 	* @emit ifacedn
 	*
+	* @emit status(this,changes,'connect'/'disconnect') The entire object is emitted AFTER other emits
+	* @emit iface(new,old) The interface is changed (or set for the first time)
+	*
+	* @prop string iface
+	* @prop array addresses
+	* @prop boolean connected
+	* @prop boolean up
+	* @prop boolean link
+	*
 	* @return <BetterEvents>
 	* @root 		Not if @mon is passed in 
 	*/
-	function monitor(iface,...optional){
+	function monitor(...args){
 		// if(process.geteuid()!=0 && !cpX.isChild(mon))
 			// return log.error("You must be root to run this command. Or pass a running child process:",mon).reject('PERMISSION_DENIED');
-		
+
 		//Make sure this function is new'ed
 		if(this.constructor!=monitor)
 			log.throw("monitor() should be new'ed");
 
-		cX.checkType('string',iface);
+		var self=this;
 
-		//If a log was passed in we'll log stuff
-		this.log=cX.getFirstOfType(optional,'<BetterLog>',true)
-		var debug=(this.log ? this.log.debug.bind(this.log):function noLog(){})
-		
-		this.log=this.log||log; //used for errors etc
+		//If a log was passed in we'll log stuff... 
+		let _log=cX.getFirstOfType(args,'<BetterLog>','extract')
+		Object.defineProperty(this,'debug',{value:(_log ? _log.debug:function noLog(){})});
+
+		Object.defineProperty(this,'log',{value:_log||log})
 
 		//Inherit from BetterEvents and set failed emits to log to our log
-		BetterEvents.call(this);
+		var bufferDelay=cX.getFirstOfType(args,'number',true)||100;
+		BetterEvents.call(this,{bufferDelay});
 		Object.defineProperty(this._betterEvents,'onerror',{value:this.log.error});
 		
-		var bufferDelay=cX.getFirstOfType(optional,'number',true)||100;
-		var d=new BetterEvents({bufferDelay});
 		
 		//Allow changing delay in case there is more noise on the network
-		Object.defineProperties(this,bufferDelay,{
-			get:()=>d._betterEvents.options.bufferDelay
+		Object.defineProperty(this,'bufferDelay',{
+			get:()=>this._betterEvents.options.bufferDelay
 			,set:(delay)=>{
 				if(typeof delay=='number')
-					d._betterEvents.options.bufferDelay=delay 
-				return d._betterEvents.options.bufferDelay
+					this._betterEvents.options.bufferDelay=delay 
+				return this._betterEvents.options.bufferDelay
 			}
 		});
-
-		//First we get the prior state. We cheat a little bit here, just checking if
-		//we have ip addresses, in which case we set everything to true/up
-		this.iface=iface;
-		this.addresses=[];
-		Object.assign(this,getIfaceState(iface)); //assigns this.up and this.link
-		var arr=os.networkInterfaces()[iface];
-		if(arr && arr.length){
-			this.connected=this.up; //up should always be true if we have addresses, but just in case not
-			this.addresses=arr.map(obj=>obj.cidr)
-			debug(`Initial state of ${iface} is 'connected' with IPs: `,this.addresses);
-		}else{
-			this.connected=false;
-			debug(`Initial state of ${iface} is 'disconnected'`);
-		}
-		
-
-		var self=this;
-		function startMonitor(mon){
-			try{
-				//Used passed process, or create own
-				if(!cX.checkType('<ChildProcess>',mon,true))
-					mon=getMonitor(iface);
-				
-				Object.defineProperty(self,'stop',{configurable:true, value:cpX.killPromise.bind(null,mon)});
-
-				//Error event is emitted when start fails, when kill fails, and when message fails. If the
-				//process exits as a result that will trigger 'exit' as well
-				mon.on('error',err=>{
-					self.log.error(`Error while monitoring ${iface}:`,err);
-				})
-
-
-				//Extend the exit event. Don't try to restart it here since we might need more handling or we may
-				//at least need to know that it's stopped
-				mon.on('exit',(code,signal)=>{
-					var err;
-					if(signal==null){
-						err=self.log.error(`Monitor exited unexpectedly with code ${code}`).setCode(code);
-					}else{
-						debug("Monitor killed by "+signal);
-					}
-					self.emit('exit',err);
-				})
-
-
-				mon.stdout.on('line',line=>{
-					// self.log.trace(line);
-					let t=line.substring(1,2);
-					switch(t){
-						//Route and address don't seem to be trusthworthy... so when we get them we  give it a delay, then
-						//we check... ^^
-						case 'R': //route
-						case 'A': //address
-							// self.log.debug("QUEING")
-							d.bufferEvent('ip'); //don't store the line, it's easier to getIpAddresses() vv
-							break;
-						case 'L': //link
-							// self.log.trace(line);
-							d.bufferEvent('link',line);
-							break;
-						
-						// default:
-							// self.log.trace('IGNORE: ',t);
-
-					}
-				})
-
-
-				//Regardless what triggered the buffer ^, check everything
-				d.on('_buffer',function onMonitorBuffer(obj){
-					try{
-						try{
-							var cidrs=getIpAddresses('cidr', iface)
-						}catch(err){
-							self.log.warn('Problem getting IP addresses, assuming none are set',err);
-						}
-						cidrs=cidrs||[];
-
-						//Check for any added or deleted
-						cidrs.forEach(cidr=>{
-							if(!self.addresses.includes(cidr)){
-								debug(`${iface} ip added:`,cidr);
-								self.emit('ipadd',cidr);
-							}
-						})
-						self.addresses.forEach(cidr=>{
-							if(!cidrs.includes(cidr)){
-								debug(`${iface} ip deleted:`,cidr);
-								self.emit('ipdel',cidr);
-							}
-						})
-
-						//Replace old for next time we check
-						self.addresses=cidrs;
-
-
-						//We want 'disconnect' to emit before link/up and 'connect' after, so store changes and emit at bottom
-						var changes=[];
-
-						//If any link lines have been caught, parse the last one...
-						if(obj && obj.link && obj.link[0]){
-							var {up,link}=parseIpLinkOutput(obj.link[0]);
-							
-							if(self.link!=link){
-								changes.push([link?'linkup':'linkdn'])
-								self.link=link;
-							}
-
-							if(self.up!=up){
-								if(up)
-									changes.unshift(['ifaceup']) //before linkup	
-								else
-									changes.push(['ifacedn']) //after linkdown
-								self.up=up;
-							}
-						}
-
-
-						// Being connected we base on interface being up and having at least one ip. It should also be based on link
-						// being up, but it seems (especially with wifi) that link goes down temporarily quite regularly so for the
-					    // purposes of taking action in a node app we'll consider that noise and ignore it (the link state is still 
-					    // stored and the event emitted, so you can check/listen for that manually)
-					    var connected=(self.up==true && self.addresses.length>0);
-					    if(self.connected!=connected){
-					    	self.connected=connected;
-					    	if(connected){
-					    		changes.push(['connect',self.addresses]); //emits last
-					    	}else{
-					    		changes.unshift(['disconnect']); //emits first
-					    	}
-					    }
-
-					    //Now emit the changes
-					    changes.forEach(args=>{
-					    	debug(`${iface} ${args.join(',')}`);
-					    	self.emit.apply(self,args);
-					   	})
-
-					}catch(err){
-						self.log.error(err);
-					}
-				});//on buffer
-
-			}catch(err){
-				self.log.error("Problem starting monitor:",err);
-			}
-		}
-		Object.defineProperty(this,'start',{value:startMonitor});
 
 
 		//One thing prevelent to most wifi networks is unstable connections leading to disconnect/connect
 		//events to the same network firing within a second of each other. The length of these 'blips'
 		//will vary with network and physical location of host, so settings a static bufferDelay may not always
 		//be good (enough), therefore we can try to learn the length and adjust accordingly
-		if(optional.includes('dynamicNoiseFilter')){
+		if(cX.extractItem(args,'dynamicNoiseFilter')){
 			this.log.info("Got flag, using dynamic noise filter...")
 			var disconnectAt,lastIP=this.addresses,lastChange=0;
 			this.on('disconnect',()=>disconnectAt=Date.now())
@@ -2060,10 +1971,187 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog,os}){
 		}
 
 		//Now start the monitor, optionally with a passed in child process
-		startMonitor(cX.getFirstOfType(optional,'<ChildProcess>',true));
+		let _iface=cX.getFirstOfType(args,'string','extract');
+		if(_iface){
+			this.start(cX.getFirstOfType(args,'<ChildProcess>'),_iface);
+		}
 	}
 	monitor.prototype=Object.create(BetterEvents.prototype);
 	Object.defineProperty(monitor.prototype, 'constructor', {value: monitor});
+
+
+	monitor.prototype.setIface=function(iface){
+		//Same iface already set, don't reset any of vv
+		if(this.iface==iface){				
+			return;
+		}
+		
+		cX.checkType('string',iface);
+		if(!this.iface){
+			this.debug(`Starting monitor of iface: ${iface}`);
+		}else{
+			var old=this.iface; //could be undefined
+			this.debug(`Changing iface to monitor: ${old} --> ${iface}`);
+		}
+
+		this.iface=iface;
+		Object.assign(this,getIfaceState(iface)); //assigns this.up and this.link
+		this.addresses=getIpAddresses(iface,'cidr');
+		if(this.addresses.length){
+			this.connected=this.up; //up should always be true if we have addresses, but just in case not
+			this.debug(`Initial state of ${iface} is 'connected' with IPs: `,this.addresses);
+		}else{
+			this.connected=false;
+			this.debug(`Initial state of ${iface} is 'disconnected'`);
+		}
+		this.emit('iface',iface,old);
+	}
+
+
+	monitor.prototype.start=function(...args){
+		try{
+			this.setIface(cX.getFirstOfType(args,'string','extract'));
+
+			//Used passed process, or create own
+			var mon=cX.getFirstOfType(args,'<ChildProcess>');
+			if(!mon){
+				mon=getMonitor(this.iface);
+				mon.on('readable',()=>this.log.debug(`Monitoring ${this.iface}...`))
+			}
+			
+			Object.defineProperty(this,'stop',{configurable:true, value:cpX.killPromise.bind(null,mon)});
+
+			//Error event is emitted when start fails, when kill fails, and when message fails. If the
+			//process exits as a result that will trigger 'exit' as well
+			mon.on('error',err=>{
+				this.log.error(`Error while monitoring ${this.iface}:`,err);
+			})
+
+
+			//Extend the exit event. Don't try to restart it here since we might need more handling or we may
+			//at least need to know that it's stopped
+			mon.on('exit',(code,signal)=>{
+				var err;
+				if(signal==null){
+					err=this.log.error(`Monitor exited unexpectedly with code ${code}`).setCode(code);
+				}else{
+					this.debug("Monitor killed by "+signal);
+				}
+				this.emit('exit',err);
+			})
+
+
+			mon.stdout.on('line',line=>{
+				// this.log.trace(line);
+				let t=line.substring(1,2);
+				switch(t){
+					//Route and address don't seem to be trusthworthy... so when we get them we  give it a delay, then
+					//we check... ^^
+					case 'R': //route
+					case 'A': //address
+						// this.log.debug("QUEING")
+						this.bufferEvent('ip'); //don't store the line, it's easier to getIpAddresses() vv
+						break;
+					case 'L': //link
+						// this.log.trace(line);
+						this.bufferEvent('link',line);
+						break;
+					
+					// default:
+						// this.log.trace('IGNORE: ',t);
+
+				}
+			})
+
+
+			//Regardless what triggered the buffer ^, check everything
+			var onMonitorBuffer=(obj)=>{
+				try{
+					try{
+						var cidrs=getIpAddresses('cidr', this.iface)
+					}catch(err){
+						this.log.warn('Problem getting IP addresses, assuming none are set',err);
+					}
+					cidrs=cidrs||[];
+
+					//Check for any added or deleted
+					cidrs.forEach(cidr=>{
+						if(!this.addresses.includes(cidr)){
+							this.debug(`${this.iface} ip added:`,cidr);
+							this.emit('ipadd',cidr);
+						}
+					})
+					this.addresses.forEach(cidr=>{
+						if(!cidrs.includes(cidr)){
+							this.debug(`${this.iface} ip deleted:`,cidr);
+							this.emit('ipdel',cidr);
+						}
+					})
+
+					//Replace old for next time we check
+					this.addresses=cidrs;
+
+
+					//We want 'disconnect' to emit before link/up and 'connect' after, so store changes and emit at bottom
+					var changes=[];
+
+					//If any link lines have been caught, parse the last one...
+					if(obj && obj.link && obj.link[0]){
+						var {up,link}=parseIpLinkOutput(obj.link[0]);
+						
+						if(this.link!=link){
+							changes.push([link?'linkup':'linkdn'])
+							this.link=link;
+						}
+
+						if(this.up!=up){
+							if(up)
+								changes.unshift(['ifaceup']) //before linkup	
+							else
+								changes.push(['ifacedn']) //after linkdown
+							this.up=up;
+						}
+					}
+
+
+					// Being connected we base on interface being up and having at least one ip. It should also be based on link
+					// being up, but it seems (especially with wifi) that link goes down temporarily quite regularly so for the
+				    // purposes of taking action in a node app we'll consider that noise and ignore it (the link state is still 
+				    // stored and the event emitted, so you can check/listen for that manually)
+				    var connected=(this.up==true && this.addresses.length>0);
+				    if(this.connected!=connected){
+				    	this.connected=connected;
+				    	if(connected){
+				    		connected='connect';
+				    		changes.push(['connect',this.addresses]); //emits last
+				    	}else{
+				    		connected='disconnect'
+				    		changes.unshift(['disconnect']); //emits first
+				    	}
+				    }else{
+				    	connected=undefined;
+				    }
+
+				    //Now emit the changes
+				    changes.forEach(args=>{
+				    	this.debug(`${this.iface} ${args.join(',')}`);
+				    	this.emit.apply(this,args);
+				   	})
+
+				   	//If there are any changes, also emit a 'status' event
+				   	if(changes.length)
+				   		this.emit('status',this,changes,connected);
+
+				}catch(err){
+					this.log.error(err);
+				}
+			};
+			this.on('_buffer',onMonitorBuffer)
+
+		}catch(err){
+			this.log.error("Problem starting monitor:",err);
+		}
+	}
 
 
 
@@ -2304,7 +2392,16 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog,os}){
 
 
 
-
+	/*
+	* @param string ip
+	* @opt bool thrw 		Default false. Only if true will this function throw
+	*
+	*
+	* @throw TypeError 		If not string. NOTE: only if $thrw==true
+	* @throw EFAULT 		If invalid ip. NOTE: only if $thrw==true
+	*
+	* @return boolean 	
+	*/
 	function validateIp(ip,thrw=false){
 		if(typeof ip=='string'){
 			var arr=ip.split('.');
@@ -2314,7 +2411,7 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog,os}){
 			log.makeError('Expected string ip, got: '+log.logVar(ip)).throw('TypeError');
 		
 		if(thrw)
-			log.makeError('Not valid IPv4: '+log.logVar(ip)).throw('BAD_ARGS');
+			log.makeError('Not valid IPv4: '+log.logVar(ip)).throw('EFAULT');
 		return false;
 	}
 
@@ -2380,6 +2477,23 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog,os}){
 		}
 
 	}
+
+
+
+	/*
+	* Ping an ip a single time
+	*
+	* @param string ip
+	*
+	* @return Promise(true|false, err) 	Resolves with ping success boolean, rejects if $ip is not valid
+	* @reject TypeError
+	* @reject EFAULT
+	*/
+	function ping(ip){
+		try{validateIp(ip,true)}catch(err){return err.reject()}
+		return cX.execFileInPromise('ping',[ip,'-c',1]).then(()=>true,()=>false);
+	}
+
 
 
 	return netX;

@@ -9,7 +9,7 @@
 *
 * This module is required by bu-browser
 */
-module.exports=function export_mobX({cX,_log,elemX}){
+module.exports=function export_mobX({cX,_log}){
 
 	
 
@@ -17,6 +17,8 @@ module.exports=function export_mobX({cX,_log,elemX}){
 	var _exports={
 		markInputting
 		,throttleInput
+		,interceptChildEvents
+		,redispatchEvent
 	}
 		
 	/*
@@ -105,6 +107,36 @@ module.exports=function export_mobX({cX,_log,elemX}){
 
 
 
+	/*
+	* Intercept events coming from child elements and dispatch them from a given parent element instead
+	*
+	* @param <HTMLElement> elem 	The parent element to intercept at and re-dispatch from
+	* @params string ...events 		Names of the events to intercept
+	*
+	* @return <HTMLElement> $elem
+	*/
+	function interceptChildEvents(elem,...events){
+		events.forEach(evt=>{
+			elem.addEventListener(evt,redispatchEvent,{capture:true})
+		})
+		return elem;
+	}
+
+
+
+
+	/*
+	* Handler function that will re-dispatch an event from the element its set on (ie. whatever 'this' is set to)
+	* @param <event> event
+	* @return void
+	*/
+	function redispatchEvent(event){
+		if(event.target!=this){
+			event.stopImmediatePropagation();
+			setTimeout(()=>this.dispatchEvent(evt))
+			 //^a timeout is required, else "DOMException: The event is already being dispatched.""
+		}
+	}
 
 	return _exports;
 }

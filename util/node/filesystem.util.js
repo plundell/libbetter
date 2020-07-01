@@ -48,8 +48,8 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	var _exports={
 		'native':fs
 		,'path':_p
-		,'exists':exists
-		,'existsSync':exists
+		,'existsSync':existsSync
+		,'exists':existsSync //alias
 		,'existsPromise':existsPromise
 		,'which':which
 		,'getRandomFileName':getRandomFileName
@@ -86,6 +86,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 		,'checkOpenFDs':checkOpenFDs
 		,'StoredItem':StoredItem
 		,'createStoredSmarty':createStoredSmarty
+		,storeSmarty
 		,'folderSize':folderSize
 		,'fileExtType':fileExtType
 		,'touch':touch
@@ -116,7 +117,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	* @param string type 		Expected type of path. @see inodeType()
 	* @param bool thrw 			If true this function will throw if path doesn't exist 
 	*
-	* @throws <ble TypeError> 	if $path not string
+	* @throws <ble TypeError> 	if $path not string (throws even if $thrw is false)
 	* @throws <ble ENOENT>|<ble EACCESS>|<ble ETYPE>|<ble BUGBUG> 	@see _existsCallback()
 	*
 	* @return undefined|str 	A normalized path if it exists, else undefined
@@ -124,7 +125,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	* @sync
 	* @not_logged
 	*/
-	function exists(path,type,thrw=false){
+	function existsSync(path,type,thrw=false){
 		path=resolvePath(path); //throws error on bad value
 
 		var err;
@@ -144,7 +145,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	* @throws <BLE TypeError> 	if $path not string
 	* @throws <ble ENOENT>|<ble EACCESS>|<ble ETYPE>|<ble BUGBUG> 	@see _existsCallback()
 	*
-	* @return Promise(str,BLE) 	Same as exists() but this rejects instead of throwing
+	* @return Promise(str,BLE) 	Same as existsSync() but this rejects instead of throwing
 	*/
 	function existsPromise(path,type,rej=false){
 		return new Promise((resolve,reject)=>{
@@ -163,7 +164,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	/*
 	* @param error err	
 	* @param string path
-	* @param string type 			Expected type of path. @see inodeType()
+	* @param string type 			Expected type of path. @see inodeType(). This can cause ETYPE even if $thrw==false
 	* @param bool thrw 				If true this function will throw if path doesn't exist 
 	*
 	* @throws <ble ENOENT> 			If WE KNOW the path doesn't exist (and $thrw==true) (could be because ENOTDIR along path)
@@ -183,7 +184,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 							//Trigger (but don't wait for) a check of where along the path the problem lay, logging when done...
 							findParentPromise(path).then(p=>{
 								let t=inodeType(p);
-								log.highlight(`exists():${path} doesnt exist because ${p} is a ${t}`);
+								log.highlight(`existsSync():${path} doesnt exist because ${p} is a ${t}`);
 							});
 						}
 						
@@ -269,8 +270,8 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 
 	function whoami(){
 		var x={
-			user:cpX.native.execFileSync('whoami').toString()
-			,groups:cpX.native.execFileSync('groups').toString().split(' ').filter(g=>g)
+			user:cpX.native.execFileSync('whoami').toString().trim()
+			,groups:cpX.native.execFileSync('groups').toString().trim().split(' ').filter(g=>g)
 			,uid:process.getuid()
 			,gid:process.getgid()
 			,gids:process.getgroups()
@@ -676,6 +677,8 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	*
 	* @param string path 	    The path to check
 	* @opt string cwd 			If passed AND $path is relative, then this will be used as cwd instead of cwd of process
+	* @opt string cwdAlt 		If 'relative' flag is passed and we don't want paths to be relative to cwdOrig
+	* @opt flag 'make-relative' If passed, paths will be made relative to $cwd or $cwdAlt		
 	* @opt flag 'no-undefined'  If passed, if the path includes the STRING 'undefined' ANYWHERE an error will be thrown
 	*
 	* @throws <BLE TypeError> 	If path is not a string
@@ -687,20 +690,14 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 
 		//Get options 
 		var noUndefined=cX.extractItem(options,'no-undefined')
-			,cwd=cX.getFirstOfType(options,'string')
+			,makeRelative=cX.extractItem(options,'make-relative')
+			,cwd=cX.getFirstOfType(options,'string')||process.cwd()
+			,cwdAlt=cX.getFirstOfType(options,'string')||cwd
 		;
 		
-		//If already cleaned, don't do it again;
-		// console.log(cleaned);
-		if(cleaned.hasOwnProperty(path))
+		//If the path matches an already cleaned one, and no options were passed in, it's already been cleaned...
+		if(!options.length && cleaned.hasOwnProperty(path))
 			return path;
-
-
-		if(path.substring(0,1)!='/')
-			path=_p.resolve(cwd||process.cwd(),path);
-		
-
-		path= _p.normalize(path)
 
 		//Since there is a larger risk that someone built a filepath without realizing that one of the
 		//components was undefined (which turned into the string 'undefined' and got included as a dir 
@@ -709,6 +706,17 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 			log.makeError("The path included substring 'undefined':",path)
 				.addHandling("If 'undefined' should be allowed, please call this function with arg #2==true.")
 				.throw();
+
+		//Resolve paths if they're relative
+		if(!_p.isAbsolute(path))
+			path=_p.resolve(cwd,path);
+		
+		//Normalize...
+		path= _p.normalize(path)
+
+		//And if we want relative paths, make them so again (possibly relative to something else)
+		if(makeRelative)
+			path='./'+_p.relative(cwdAlt,path);
 
 		//2019-12-09: Add to object so we don't clean string again. This will speed things up a little on 
 		// 			  expense of memory, but more importantly this allows arg #2 to be enacted once and then
@@ -743,7 +751,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	*/
 	function flushFifo(path){
 		//First check that the fifo exists...
-		if(exists(path,'fifo')){
+		if(existsSync(path,'fifo')){
 			//...then write something to it to make sure it's not empty when we attempt to cat it
 			cpX.native.execFile("echo",['-n','FOO','>',path],{timeout:100},(err,stdout,stderr)=>{
 				if(err){
@@ -779,11 +787,11 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 
 		//First make sure the parent dir exists...
 		var dir=_p.dirname(path);
-		if(!exists(dir,'dir')){
+		if(!existsSync(dir,'dir')){
 			log.throw("Parent dir doesn't exist: "+dir);
 
 		//...if so check if the fifo itself already exists...
-		}else if(exists(path,'fifo')){
+		}else if(existsSync(path,'fifo')){
 
 			//...in which case either remove in preparation for re-create, or return 1
 			if(reCreate){
@@ -805,7 +813,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 			
 			cpX.native.execFileSync("mkfifo",[path],{timeout:1000});
 			
-			if(exists(path,'fifo'))
+			if(existsSync(path,'fifo'))
 				return ret+2; //Fifo was created (2)/re-created(3) here
 			else
 				throw new Error("mkfifo exited with 0 but fifo still doesn't exist");
@@ -830,7 +838,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 		path=resolvePath(path); //throws error on bad value
 
 		//Check if it already exists and if it's a dir
-		if(exists(path,'dir')){ //throws if exists but not a dir
+		if(existsSync(path,'dir')){ //throws if exists but not a dir
 			if(mode){
 				//TODO: if mode is passed, make sure to set it on existing folder...
 				log.note("TODO: Dir already exists, but changing mode to: ",mode);
@@ -855,13 +863,13 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 		//Now loop over the paths, eventually finding ones that don't exist, creating them
 		var c=0, e=0;
 		paths.forEach(function(part){
-			if(!exists(part,'dir')){
+			if(!existsSync(part,'dir')){
 				c++;
 				fs.mkdirSync(part, mode)
 			}else
 				e++;
 		});
-		if(!exists(path,'dir'))
+		if(!existsSync(path,'dir'))
 			log.throw(`BUG: fs.mkdirSync threw no error but didn't create ${path}. Check if these exist: `,paths)
 		else
 			log.info(`Created ${path}. First ${e} existed, last ${c} created:`,paths);
@@ -940,6 +948,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	* @param string|object opts 	@see docs online. you can append/write using thise
 	*/
 	function writeFilePromise(path,data,opts='utf8'){
+		//Make sure that the dir exists and that we're allowed to write in it (ie. we don't care if the actual file exists)
 		return existsPromise(path,'file')
 			.then(()=>{
 				var {promise,callback}=cX.exposedPromise();
@@ -1021,7 +1030,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 		} catch(err){
 			try{
 				cX.checkTypes(['string',['object','string']],[path,opts]);
-				exists(path,'file',true)
+				existsSync(path,'file',true)
 			}catch(e){
 				err=e;
 			}
@@ -1113,41 +1122,77 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	*
 	* NOTE: Only works on unix systems that have 'ls' command
 	*
-	* @param string path 		Path or search pattern
-	* @opt boolean fullPath 	If ==true + $path is search pattern => /path/to/name.txt, else/default name.txt
+	* @param string path 		Path or search pattern. NOTE: pattern only works on unix systems that have 'find' command
+	* @opt string|bool mode		The following are accepted:	
+	*	filename,basename,name,file,false 	=> foo.js
+	* 	fullpath,full,path,true 			=> /path/to/foo.js
+	*   relative => ./foo.js 	NOTE: relative to process.cwd() or $relativeTo
+	* 
 	*
 	* @throw <ble TypeError>
 	* @throw <ble ENOENT> 		If the path doesn't exist (does not apply to search patterns)
 	* @return array[string]	 	Array of filename/paths (see ^), or an empty array
 	* @sync
 	*/
-	function ls(path,fullPath=false){
-		//Make sure we have a full path 
-		path=resolvePath(path);
-		var isSearchPattern=path.indexOf('*')>-1
+	function ls(path,mode="basename",relativeTo){
+		//For clarity and same handling here and in resolvePath()
+		relativeTo=relativeTo||process.cwd();
 
-		try{
-			var obj=cpX.execFileSync('ls',[path]);
-			var list=obj.stdout.split('\n');
+		cX.checkTypes(['string','string','string'],[path,mode,relativeTo]);
 
-			//Warn if it seems we've ls'd a file (we probably want to ls dirs)
-			if(list.length==1 && path.endsWith(list[0]) && inodeType(path)=='file'){
-				log.warn("You called ls on a single file, was that intentional?")
-			}
-
-			if(fullPath && !isSearchPattern){
-				//if a search pattern is use, 'ls' will naturally return the whole path...
-				list=list.map(_p.resolve(path,file));
-			}
-
-			return list;
-		}catch(obj){
-			if(!isSearchPattern){ //don't warn on search patterns
-				log.throwCode("ENOENT: The path doesn't exist:",path);
-			}
-			return [];
+		//Normalize the mode
+		switch(mode){
+			case 'relative':mode='relative'; break;
+			case 'fullpath':case 'full':case 'path':case true: mode='fullpath'; break;
+			case 'basename':case 'filename':case 'name':case 'file':case false: default:mode='basename';
 		}
 
+
+		//Make sure we have a full path (which could be a pattern)
+		let fullpathOrPattern=resolvePath.apply(this,[path,relativeTo]);
+			//^here $relativeTo will only have an affect if $path is relative, in which case it's assumed to be
+			//relative to $relativeTo 
+
+		var index=fullpathOrPattern.indexOf('*'),list;
+		if(index>-1){
+			//For "search patterns" we use 'find' 
+			let dir=fullpathOrPattern.substr(0,index), pattern=fullpathOrPattern.substr(index); //keep outside try-block so errors aren't mistaken...
+			try{
+// DevNote 2020-05-18: 'ls' needs a shell feature called 'globbing' which expands '*' to matching files to do this, but when
+// trying to run with a shell we got the files in pwd, it completely ignored the path we were asking for... Also, trying
+// to run execSync('find',[path]) will return `find pwd`, while execFileSync('find',[path]) will in fact return `find pwd`
+				list=cpX.execFileSync('find',[dir,'-name',pattern],{lines:true}).stdout;
+			}catch(err){
+				//If find doesn't match any files it'll throw an error, but really we just want to note this and move on
+				log.note("No files matched pattern",pattern);
+				return [];
+			}
+
+			//This will always return the full path name, so if we don't want that we have to remove everything
+			//before the first *
+			switch(mode){
+				case 'fullpath': return list;
+				case 'basename': return list.map(fullpath=>_p.basename(fullpath));
+
+				//same handling of 'relative' at bottom
+			}
+		}else{
+			//If we just want the contents we just read the dir
+			list=fs.readdirSync(fullpathOrPattern);
+
+			//This will only return the filenames, so if we want the whole path...
+			if(mode=='basename')
+				return list;
+
+			//For both the other cases we first need the full path
+			list=list.map(basename=>_p.resolve(fullpathOrPattern,basename));
+
+			if(mode=='fullpath')
+				return list;
+		}
+
+		//If we're still running we have fullpaths and want relative paths
+		return list.map(fullpath=>resolvePath(fullpath,'make-relative',relativeTo));
 	}
 
 
@@ -1160,7 +1205,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	* @sync
 	*/
 	function lh(path){
-		var list=ls(path,true),details=[],ipath,i=0;
+		var list=ls(path,'fullpath'),details=[],ipath,i=0;
 		// console.log(list);
 		for(ipath of list){
 			try{
@@ -1403,7 +1448,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 		try{
 			[path,mode]=_fileOpenPrepare(path,mode);
 
-			if(!exists(path))
+			if(!existsSync(path))
 				return null
 				
 			// var obj=cpX.native.spawnSync("lsof",[path,'|','awk',"'{print $2,$4}'"],{timeout:1000}) //cannot handle |
@@ -1552,15 +1597,13 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
         var type=(constructor.name=='SmartArray' ? 'array' : 
         	constructor.name=='SmartObject'?'object':log.throwCode('EINVAL','Expected arg#2 to be smart constructor, got:',constructor));
 
+    //2020-05-08: should probably not mess with vv, just let the defaults rule...
         //Add some options
-        var d={delayedSnapshot:1000},c;
-        //2020-05-08: ^that we need for storage purposes, but vv we should probably not mess with, just let the defaults rule...
         if(type=='array'){
-            options=Object.assign(d,{moveEvent:true},options);
+            options=Object.assign({},{moveEvent:true},options);
         }else{
-            options=Object.assign(d,{children:'complex'},options);
+            options=Object.assign({},{children:'complex'},options);
         }
-
 
         var smarty=new constructor(options)
 
@@ -1569,71 +1612,88 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
     }
 
 
-
-    function storeSmarty(filepath,smarty){
+    /*
+	* Store an existing smarty
+	*
+	* @param string filepath
+	* @param <SmartProto> smarty
+	* @opt flag 'noRead' 			If passed, nothing will be read from disk until ._read() is called
+	*
+	* @return $smarty
+    */
+    function storeSmarty(filepath,smarty,noRead=false){
     	var [,name]=cX.checkTypes(['string',['<SmartArray>','<SmartObject>']],[filepath,smarty]);
 
-    	//Make sure there is a snapshot happening so we have somethingn to listen for
-    	if(!smarty.hasSnapshot())
-    		smarty.setupSnapshot(1000);
+    	//Smarties can only be stored once...
+    	if(smarty._private.storage)
+    		log.throw("Smarty already stored @"+smarty._private.storage.filepath)
 
-        //Create a stored item
-        var storage=new StoredItem(
+    	//To store the smarty we want to define a couple of methods, so these props cannot already be taken
+    	if(smarty.has('_detach'))
+    		log.throw("Cannot store smarty when prop '_detach' is already defined")
+    	if(smarty.has('_unlink'))
+    		log.throw("Cannot store smarty when prop '_unlink' is already defined")
+    	if(smarty.has('_read'))
+    		log.throw("Cannot store smarty when prop '_read' is already defined")
+    	smarty._private.reservedKeys.push('_detach','_unlink','_read');
+
+    	//Create the storage
+        smarty._private.storage=new StoredItem(
         	filepath
         	,(name=='<SmartArray>' ? 'array':'object')
         	,(smarty._private.options.children!='primitive' ? 'json' : undefined)
         	,smarty._log
         );
 
-        //Define a couple of extra methods on the smarty
+        //Create additional flag that controlls if changes are written to file
+        smarty._private.attached=true;
         /*
 		* Stop storeing changes to smarty on the hdd
 		* @return void
         */
-        var attached=true;
-        Object.defineProperty(smarty,'detach',{value:function detachStoredSmarty(){
-        	attached=false;
+        Object.defineProperty(smarty,'_detach',{value:function detachStoredSmarty(){
+        	smarty._private.attached=false;
         }})
 
         /*
 		* Unlink the underlying file (and stop storing changes)
 		* @return void
         */
-        Object.defineProperty(smarty,'unlink',{value:function unlinkStoredSmarty(){
-         	smarty.detach();
-         	storage.unlink();
+        Object.defineProperty(smarty,'_unlink',{value:function unlinkStoredSmarty(){
+         	smarty._detach();
+         	smarty._private.storage.unlink();
          }});
 
 
-        //Then start listening or the snapshot and write the whole thing to HDD, as long as we're still attached (see ^^)
+       	//Make sure there is a snapshot happening so we have somethingn to listen for
+    	if(!smarty.hasSnapshot())
+    		smarty.setupSnapshot(1000);
+
+
+        //Then start listening to the snapshot and write the whole thing to HDD, as long as we're still attached (see ^^)
         smarty.on('snapshot',()=>{
-        	if(attached){
-        		if(!storage.stat.exists){
-        			log.note("Creating file for stored smarty NOW @",storage.filepath);
-        			storage.stat.exists=true;
+        	if(smarty._private.attached){
+        		if(!smarty._private.storage.stat.exists){
+        			log.note("Creating file for stored smarty NOW @",smarty._private.storage.filepath);
+        			smarty._private.storage.stat.exists=true;
         		}
-        		storage.write(smarty.stupify()).catch(log.error)
+        		smarty._private.storage.write(smarty.stupify()).catch(log.error)
         	}
         });
 
 
-        //Finally...
-        if(storage.stat.exists){
-	        //...load initial data from storage...
-	        var data=storage.read();
+        Object.defineProperty(smarty,'_read',{value:function readFromStorage(){
+	        if(smarty._private.storage.stat.exists){
+		        //Load initial data from storage and set anything not already set
+		        smarty.fillOut(smarty._private.storage.read());
+	        }else{
+	        	log.note("No previous data/file found. It will be created when something is set on this smarty @",smarty._private.storage.filepath);
+	        }
+        }});
 
-	        //...but any data already on smarty takes presidence...
-	        var l=smarty.length
-	        if(l)
-	        	var existing=smarty.stupify();
-
-	        smarty.assign(data);
-	        
-	        if(l)
-	        	smarty.assign(existing);
-        }else{
-        	log.note("No previous data/file found. It will be created when something is set on this smarty @",storage.filepath);
-        }
+        if(noRead!='noRead')
+        	smarty._read();
+        
 
         return smarty;
     }
@@ -1784,7 +1844,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 		* @sync
 		*/
 		this.unlink=function(){
-			if(exists(this.filepath))
+			if(existsSync(this.filepath))
 				fs.unlinkSync(this.filepath);
 			return;
 		}
@@ -1893,7 +1953,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	* @sync
 	*/
 	function touch(path,setModified=true){
-		if(!exists(path,'file')){
+		if(!existsSync(path,'file')){
 			fs.closeSync(fs.openSync(path, 'w'));
 		}else if(setModified){
 			var time = new Date();
@@ -1925,6 +1985,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 			.then(()=>cX.promisifyCallback(fs.rename,oldPath,newPath))
 		;
 	}
+
 
 
 	return _exports;

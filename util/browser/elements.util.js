@@ -9,13 +9,14 @@
 *
 * This module is required by bu-browser
 */
-module.exports=function export_elemX({cX,_log}){
+module.exports=function export_elemX({cX,_log,evtX}){
 
 	
 
 	//Methods to export, returned at bottom
 	var _exports={
-		'getSubAttributes':getSubAttributes
+		'_styles':{} //populated vv with name:{cssselector:stylestring,...}
+		,'getSubAttributes':getSubAttributes
 		,'hasSubAttributes':hasSubAttributes
 		,'getLiveElement':getLiveElement
 		,'getLiveElements':getLiveElements
@@ -27,8 +28,10 @@ module.exports=function export_elemX({cX,_log}){
 		,'getIdsFromNodelist':getIdsFromNodelist
 		,'getJsonAttr':getJsonAttr
 
+		,createElement
 		,createInput
-		,toggleSliderCss
+		,addInputOptions
+		,addInputOption
 		,'setValueOnElem':setValueOnElem
 		,'getValueFromElem':getValueFromElem
 		,'getChildInputs':getChildInputs
@@ -380,7 +383,7 @@ module.exports=function export_elemX({cX,_log}){
 	* @return void
 	*/
 	function setDataset(elem,data){
-		vX.checkTypes(['node',['object','array']],arguments);
+		cX.checkTypes(['node',['object','array']],arguments);
 		Object.entries(data).forEach(([key,value])=>elem.dataset[key]=(typeof value=='object'?JSON.stringify(value):value))
 	}
 
@@ -484,11 +487,27 @@ module.exports=function export_elemX({cX,_log}){
 
 
 
+	/*
+	* Similar to document.createElement(), but it knows about inputs, ie. that 'radio' => <input type='radio'>
+	*
+	* @param string tagName
+	*
+	* @return <HTMLElement> 
+	*/
 
-
-
-
-
+	function createElement(tagName){
+		cX.checkType('string',tagName);
+		tagName=tagName.toLowerCase();
+		if(inputTypes.includes(tagName))
+			return createInput('',tagName);
+		else
+			return document.createElement(tagName);
+	}
+	createElement.inputTypes=[
+		"button","checkbox","color","date","datetime-local","email","file","hidden","image","month","number",
+		"password","radio","range","reset","search","submit","tel","text","time","url","week","radioset","checklist",
+		"dropdown","toggle","textarea"
+	];
 
 
 
@@ -499,7 +518,7 @@ module.exports=function export_elemX({cX,_log}){
 	/*
 	* Create an input element from instructions.
 	*
-	* @param string name
+	* @param string name 		If an empty string is passed then no name will be set
 	* @opt string type 			Any valid <input type=xxx>, or 'select'/'dropdown', 'toggle', 'radioset'. Defaults to 'text'
 	* @opt array items 			Used to populate certain types of inputs. Values can be a string or {label, value}
 	*
@@ -531,37 +550,56 @@ module.exports=function export_elemX({cX,_log}){
 				input.type=type;
 		}
 
-		input.name=name;
+		if(name) //allow for name skipping if an empty string is passed in
+			input.name=name;
 
 		return input;
 	}
 
 
+	createInput.optionMap={
+		'radioset':'radio'
+		,'checklist':'checkbox'
+		,'dropdown':'option'
+	}
+
+	/*
+	* Get the type of elements a fieldset can be populated with, based on createInput.optionMap{}
+	*
+	* @param <HTMLElement> elem 	
+	*
+	* @return string
+	*/
+	function getInputOptionType(elem){
+		return createInput.optionMap[elem.type||elem.getAttribute('type')];
+	}
 
 	createInput.radioset=function createRadioSet(items){
-		let fieldset=createFieldset('radioset')
+		let fieldset=createFieldset('radioset');
 
 		//the checklist gets and sets an array
 		Object.defineProperty(fieldset,'value',{
 			enumerable:true
 			,get:()=>{
-				return Array.from(fieldset.querySelectorAll('input[type=checkbox]:checked')).map(elem=>elem.value)
+				return Array.from(fieldset.querySelectorAll('input[type=radio]:checked')).map(elem=>elem.value)
 			}
 			,set:(arr)=>{
 				if(cX.checkType(['primitive','array'],arr)!='array'){
 					arr=[arr];
 				}
 				//Set the state of each checkbox according to the array (ie. unselect all not mentioned)
-				fieldset.querySelectorAll('input[type=checkbox]').forEach(elem=>elem.checked=arr.includes(elem.value));
+				fieldset.querySelectorAll('input[type=radio]').forEach(elem=>elem.checked=arr.includes(elem.value));
 				return;
 			}
 		})
 
-		if(cX.varType(items)!='array' || !items.length){
-			_log.warn("Creating an empty radioset, ie. without actual <input type='radio'>s",fieldset);
-		}else{
-			addFieldsetItems(fieldset,'radio',items);
-		}
+		//Radios need to be grouped (which is how they control that only 1 is selected... so create a random group name)
+		fieldset.setAttribute('groupname',cX.randomString(10)) //10 characters should be enough...
+
+		addInputOptions(fieldset,items);
+
+		//Only the fieldset should dispatch events, not the child <radio>s
+		evtX.interceptChildEvents(fieldset,['input','change']);
 
 		return fieldset;
 	}
@@ -585,11 +623,10 @@ module.exports=function export_elemX({cX,_log}){
 			}
 		})
 
-		if(cX.varType(items)!='array' || !items.length){
-			_log.warn("Creating an empty checklist, ie. without actual <input type='checkbox'>s",fieldset);
-		}else{
-			addFieldsetItems(fieldset,'radio',items);
-		}
+		addInputOptions(fieldset,'checkbox',items);
+
+		//Only the fieldset should dispatch events, not the child <checkbox>es
+		evtX.interceptChildEvents(fieldset,['input','change']);
 
 		return fieldset;
 	}
@@ -599,27 +636,14 @@ module.exports=function export_elemX({cX,_log}){
 	createInput.dropdown=function createDropdown(options){
 		let select=document.createElement('select');
 		
-		if(cX.varType(options)!='array' || !options.length){
-			_log.warn("Creating an empty <select>, ie. the dropdown will not contain any <option>s",select);
-		}else{
-			//Create all the options
-			options.forEach(opt=>{
-				let o=document.createElement('option');
-				if(typeof opt=='object'){
-					o.value=opt.value;
-					o.innerHTML=opt.label||opt.value;
-				}else{
-					o.value=o.innerHTML=opt;
-				}
-				
-				select.appendChild(o);
-			})
-		}
+		//Populate it...
+		select.setAttribute('type','dropdown'); //so addInputOptions() knows whats up
+		addInputOptions(select);
 
 		return select;
 	}
 
-	const toggleSliderCss=Object.freeze({
+	_exports._styles.toggleSliderCss=Object.freeze({
 		'.toggle-wrapper':'position: relative;display: inline-block;width: 2em;height: 1em; border:0 none;padding:0;'
 		,'.toggle-wrapper input':'opacity: 0;width: 0;height: 0;display:block;' //if 'block' is removed then <span> sits under <input>
 		,'.toggle-slider':'position: absolute;cursor: pointer;top: 0;left: 0;right: 0;bottom: 0;border-radius: 1em;background-color: #ccc;-webkit-transition: .4s;transition: .4s;'
@@ -643,8 +667,7 @@ module.exports=function export_elemX({cX,_log}){
 		})
 
 		//The actual input will be a checkbox...
-		let input=document.createElement('input');
-		input.type='checkbox';
+		let input=createElement('checkbox');
 		fieldset.appendChild(input);
 
 		//...but we'll show a nice slider created by a span+css
@@ -665,21 +688,19 @@ module.exports=function export_elemX({cX,_log}){
 		let fieldset=createFieldset('datetime');
 
 		//Add seperate inputs for date and time
-		let date=document.createElement('input');
-		date.type='date'
+		let date=createElement('date');
 		fieldset.appendChild(date);
 
-		let time=document.createElement('input');
-		time.type='time'
+		let time=createElement('time');
 		fieldset.appendChild(time);
 
 		//Create getter/setter on the fieldset
 		Object.defineProperty(fieldset,'value',{
 			enumerable:true
-			,get:()=>cX.makeDate(fieldset.querySelector('input[type=date]').value,fieldset.querySelector('input[type=time]').value)
+			,get:()=>cX.makeDate(date.value,time.value)
 			,set:(datetime)=>{
-				fieldset.querySelector('input[type=date]').value=cX.formatDate(datetime);
-				fieldset.querySelector('input[type=time]').value=cX.formatTime(datetime);
+				date.value=cX.formatDate(datetime);
+				time.value=cX.formatTime(datetime);
 			}
 		})
 
@@ -691,65 +712,98 @@ module.exports=function export_elemX({cX,_log}){
 	function createFieldset(type){
 		let fieldset=document.createElement('fieldset');
 		fieldset.setAttribute('bu-input',''); //flag so we can identify it easily
+		Object.defineProperty(fieldset,'type',{enumerable:true, configurable:true
+			,get:()=>fieldset.getAttribute('type')
+			,set:(val)=>fieldset.setAttribute('type',val)
+		})
 		fieldset.type=type; //does not do anything for form-api, but is used by getValueFromElem() and setValueOnElem()
 		return fieldset;
 	}
 
+
+
+
+
 	/*
-	* @param <HTMLElement> fieldset 	A <fieldset> elem 	NOTE: this live object will be appended
-	* @param string type 				'radio' or 'checkbox'
-	* @param array items 				Array of strings or of {label,value} used to create <input> children within the $fieldset
+	* Add a list of items to an input elem (or fieldset) AND set method .addOption on it so more items can be added later
 	*
-	* @return void
+	* @param <HTMLElement> input 	A live elem that will be appended
+	* @param array items 			Array of strings or of {label,value} used to create <input> children within the $fieldset
+	*
+	* @return <HTMLElement> $input
 	*/
-	function addFieldsetItems(fieldset, type, items){
-		
-		//All radio inputs within a radioset need to have the same name, else more than one can be selected
-		if(type=='radio')
-			var groupname=cX.randomString(10); //10 characters should be enough...
+	function addInputOptions(input, items){
 
-		//Create and all items
-		items.forEach(item=>{
-			let input=document.createElement('input'), 
-				label=document.createElement('label')
-			;
+		//Add the "setter" method to the fieldset (so more items can be added later)
+		input.addOption=addInputOption.bind(input);
 
-			input.type=type;
-
-			if(typeof opt=='object'){
-				input.value=opt.value;
-				l.innerHTML=opt.label||opt.value;
-			}else{
-				input.value=l.innerHTML=opt;
-			}
-
-			//Mark the input so we know it's a part of the fieldset
-			input.setAttribute('bu-ignore','');
-
-			//Radiosets need the groupname, see ^
-			if(groupname)
-				input.name=groupname
-
-			//the input goes inside the label so you can click the entire label, then the label goes 
-			//inside the overall fieldset
-			label.appendChild(input);
-			fieldset.appendChild(label);
-		})
-
-		//Since regard the fieldset as the ONLY input, we intercept the change and input events and 
-		//change their target 
-		fieldset.addEventListener('input',changeTargetToFieldset,{capture:true})
-		fieldset.addEventListener('change',changeTargetToFieldset,{capture:true})
-
-		return;
-	}
-	function changeTargetToFieldset(event){
-		if(event.target!=this){
-			event.stopImmediatePropagation();
-			setTimeout(()=>this.dispatchEvent(evt))
-			 //^a timeout is required, else "DOMException: The event is already being dispatched.""
+		if(cX.varType(items)!='array' || !items.length){
+			_log.note(`Creating an empty ${input.type}, ie. without actual <input type='${getInputOptionType(input)}'>s. Please add items later...`
+				,input);
+		}else{
+			items.forEach(input.addOption)
 		}
+
+		return input;
 	}
+
+	/*
+	* Add an item to a an input element that holds items...
+	*
+	* @param string|object item
+	*
+	* @return <HTMLElement> The newly created element
+	*
+	* @call(<HTMLElement>) The element you want to add the option to
+	*/
+	function addInputOption(option){
+		var input=createElement(getInputOptionType(this)) //will create <option> or <input type="...">
+		
+		//We wrap <input>s in a label, whereas <option>s are their own labels
+		if(input.tagName=='OPTION'){
+			var label=input;
+		}else{
+			label=document.createElement('label');
+			label.appendChild(input);
+			
+			//Unlike <option>s we need to mark (what's expected to be) <input>s to be ignored, since the "parent input" (expected to be
+			//a <fieldset>) is the "actual" input
+			input.setAttribute('bu-ignore','');
+		}
+		
+		//For same handling turn string args into objects
+		if(typeof option!='object')
+			option={value:option};
+
+		
+		input.value=option.value;
+		setFirstTextNode(label,option.label||option.value);
+		
+
+		//Finally, some fieldsets (like radiosets) need groupname, so set that here
+		if(this.hasAttribute('groupname'))
+			input.name=this.getAttribute('groupname')
+
+		//Then append and return the newly created option
+		this.appendChild(label);
+		return label;
+	}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -778,73 +832,76 @@ module.exports=function export_elemX({cX,_log}){
 		if(cX.checkTypes(['node',['primitive','undefined']],[elem,value])[1]=='undefined')
 			value='';
 
+		try{
 
-		switch(elem.tagName){
-			case 'TEXTAREA':
-			case 'SELECT':
-				break;
-			case 'INPUT':
-				if(elem.type=='checkbox'||elem.type=='radio'){
-					if(typeof value=='boolean'){
-						elem.checked=value;
-					}else{
-						if(elem.type=='radio'){
-							//For radios, get all with the same name since that's who we're setting
-							let f=firstParentTagName('form'); //form or entire document
-							let i=f.querySelector(`input[value=${value}][name=${elem.name}]`)
-							if(i){
-								//If we have a match, select it...
-								i.checked=true;
-							}else{
-								//...else unselect all
-								f.querySelectorAll(`input[name=${elem.name}]`).forEach(elem=>elem.checked=false);
-							}
-
-						}else{
-							elem.checked=(elem.value==value)
-						} 
-					}
-					return;				
-				}
-				break;
-
-			case 'FIELDSET':
-				if(node.type=='radioset' || node.type=='checklist'){
-					//2020-03-23: these work like regular inputs now...
+			switch(elem.tagName){
+				case 'TEXTAREA':
+				case 'SELECT':
 					break;
-				}
+				case 'INPUT':
+					if(elem.type=='checkbox'||elem.type=='radio'){
+						if(typeof value=='boolean'){
+							elem.checked=value;
+						}else{
+							if(elem.type=='radio'){
+								//For radios, get all with the same name since that's who we're setting
+								let f=firstParentTagName('form'); //form or entire document
+								let i=f.querySelector(`input[value=${value}][name=${elem.name}]`)
+								if(i){
+									//If we have a match, select it...
+									i.checked=true;
+								}else{
+									//...else unselect all
+									f.querySelectorAll(`input[name=${elem.name}]`).forEach(elem=>elem.checked=false);
+								}
 
-			default:
-				if(!elem.__proto__.hasOwnProperty('value')){
-					if(!elem.childElementCount()){
-						//If no children exist, the value is just set inside the elem... like an empty <span> being populated
-						return setFirstTextNode(elem,value);
-					}else{
-						_log.makeError(`This <'${elem.tagName.toLowerCase()}'> does not have a .value prop AND it does have children`,elem)
-							.throw('EINVAL');
+							}else{
+								elem.checked=(elem.value==value)
+							} 
+						}
+						return;				
 					}
-				}
-		}
-		
-		//Now set the value and make sure it gets changed
-		let before=elem.value;
-		elem.value=value
-		if(elem.value!=value){
-			//Some changes we are not allowed, like setting a range to null/false/undefined
-			if(elem.getAttribute('type')=='range' && !value && value!==0){
-				_log.warn(`You cannot set a range to '${value}'. Default behavior was to set it to:`,elem.value);
-				return;
+					break;
+
+				case 'FIELDSET':
+					if(node.type=='radioset' || node.type=='checklist'){
+						//2020-03-23: these work like regular inputs now...
+						break;
+					}
+
+				default:
+					if(!elem.__proto__.hasOwnProperty('value')){
+						if(!elem.childElementCount){
+							//If no children exist, the value is just set inside the elem... like an empty <span> being populated
+							return setFirstTextNode(elem,value);
+						}else{
+							_log.makeError(`Cannot set value on <'${elem.tagName.toLowerCase()}'> that doesn't have a .value prop AND has children`,elem)
+								.throw('EINVAL');
+						}
+					}
 			}
-		//TODO 2020-03-27: we may want to throw ^ as well
 
-			var str=`Failed to set value of <${elem.tagName}> to '${value}', `;
-			str+=(elem.value==before ? 'it remains unchanged as ':'it was instead set to ')+`'${elem.value}'`
-			_log.makeError(str,elem).throw();
+			//Now set the value and make sure it gets changed
+			let before=elem.value;
+			elem.value=value
+			if(elem.value!=value){
+				//Some changes we are not allowed, like setting a range to null/false/undefined
+				if(elem.getAttribute('type')=='range' && !value && value!==0){
+					_log.warn(`You cannot set a range to '${value}'. Default behavior was to set it to:`,elem.value);
+					return;
+				}
+			//TODO 2020-03-27: we may want to throw ^ as well
+
+				var str=`Failed to set value of <${elem.tagName}> to '${value}', `;
+				str+=(elem.value==before ? 'it remains unchanged as ':'it was instead set to ')+`'${elem.value}'`
+				_log.makeError(str,elem).throw();
+			}
+
+		}catch(err){
+			if(!err._isBLE)
+				err=_log.makeError("Failed to set value on elem",{elem,value},err).throw();
+			err.throw();
 		}
-
-
-		
-
 		return;
 	}
 
@@ -1149,79 +1206,81 @@ module.exports=function export_elemX({cX,_log}){
 	* @return object 	Object with props: table, head, body and methods addRow, addCol and addColClass
 							{
 								columns : array - kept up to date with columns in table
-								_table:<table>
-								head:{colA:<th>, colB:<th>, _tr:<tr>}
-								body:[{colA:<td>, colB:<td>, _tr:<tr>},{}...,_tbody]
+								_elem:<table>
+								head:{colA:<th>, colB:<th>, _elem:<tr>}
+								body:[{colA:<td>, colB:<td>, _elem:<tr>},{}...,_elem:<tbody>]
 								addRow : method
-								removeRow : method
+								removeRow : method - removes a single row
+								empty : method - removes all rows
 								addCol : method - Adds a column to each row (th in thead, td in tbody)
 								addColClass : method - add class to each th and td in a column
 
 							}
 	*/
 	function createTable(columns){
-		var obj={columns};
+		var table={columns};
 
 
 
-		obj._table=document.createElement('table');
+		table._elem=document.createElement('table');
 
 		//Add head and header row
 		let thead=document.createElement('thead');
-		obj._table.appendChild(thead);
+		table._elem.appendChild(thead);
 		let headrow=document.createElement('tr');
 		thead.appendChild(headrow);
 		
 		//To get the real width, check every single row for the largest number of columns
-		Object.defineProperty(obj,'width',{enumerable:true, get:()=>
-			Array.from(obj._table.querySelectorAll('tr'))
+		Object.defineProperty(table,'width',{enumerable:true, get:()=>
+			Array.from(table._elem.querySelectorAll('tr'))
 				.reduce((max,tr)=>Math.max(max,tr.childElementCount()),0)
 		})
 
-		//Create a th for each column and add to return obj.head
-		obj.head={};
-		Object.defineProperty(obj.head,'_tr',{value:headrow});
+		//Create a th for each column and add to return table.head
+		table.head={};
+		Object.defineProperty(table.head,'_elem',{value:headrow});
 		function addTh(col){
 			let th=document.createElement('th');
 			th.innerHTML=col;
 			headrow.appendChild(th)
-			obj.head[col]=th
+			table.head[col]=th
 		}
 		columns.forEach(addTh);
 
 		//Add body
-		let tbody=document.createElement('tbody');
-		obj._table.appendChild(tbody)
-		Object.defineProperty(obj,'height',{enumerable:true, get:()=>tbody.childElementCount()})
-
-
-		obj.body=[];
-		Object.defineProperty(obj.body,'_tbody',{value:tbody});
+		const tbody=document.createElement('tbody');
+		table._elem.appendChild(tbody)
+		Object.defineProperty(table,'height',{enumerable:true, get:()=>tbody.childElementCount()})
+		table.body=[];
+		Object.defineProperty(table.body,'_elem',{value:tbody});
 
 		//Create a <td> with a couple of hidden methods to easily add an input or row-button
 		function createCell(row,colName,innerHTML){
 			let td=document.createElement('td');
 			Object.defineProperties(td,{
-				'_addButton':{value:function addButtonToCell(...args){return td.appendChild(createCustomEventButton.apply(this,args));}}
-				,'_addInput':{value:function addInputToCell(...args){return td.appendChild(createInput.apply(this,args));}}
-				,'_valueTarget':{get:()=>this.firstElementChild||this,value}
-				,'_setValue':{value:function setCellValue(value){setValueOnElem(this._valueTarget,value)}}
-				,'_getValue':{value:function getCellValue(){return getValueFromElem(this._valueTarget)}}
+				'_addButton':{value:function addButtonToCell(...args){return td.appendChild(createCustomEventButton.apply(td,args));}}
+				,'_addInput':{value:function addInputToCell(...args){return td.appendChild(createInput.apply(td,args));}}
+				,'_valueTarget':{get:()=>td.firstElementChild||td}
+				,'_setValue':{value:function setCellValue(value){setValueOnElem(td._valueTarget,value)}}
+				,'_getValue':{value:function getCellValue(){return getValueFromElem(td._valueTarget)}}
 			})
-			td.innerHTML=vX.isEmpty(innerHTML,null)?'':innerHTML //null is considered empty, but 0 and false are not
-			row._tr.appendChild(td);
+			td.innerHTML=cX.isEmpty(innerHTML,null)?'':innerHTML //null is considered empty, but 0 and false are not
+			row._elem.appendChild(td);
 			row[colName]=td;
 			return td;
 		}
 
-		obj.addRow=function addRow(data=[]){
+		/*
+		* @return object 	Object with enumerable props named after each column, and non-enumerable ._elem = live <tr> elem
+		*/
+		table.addRow=function addRow(data=[]){
 			if(typeof data !='object' || !data)
 				_log.throwType("object or array",data);
 
 			//Create a row...
 			let row={};
 			let tr=document.createElement('tr');
-			Object.defineProperty(row,'_tr',{value:tr});
+			Object.defineProperty(row,'_elem',{value:tr});
 
 			//Fill it with cells
 			if(Array.isArray(data)){
@@ -1247,19 +1306,19 @@ module.exports=function export_elemX({cX,_log}){
 
 			//...and add it to the body and the shorcut on our return element
 			tbody.appendChild(tr);
-			obj.body.push(row);
+			table.body.push(row);
 			return row;
 		};
 
 		/*
 		* Remove a child <tr> element
 		*
-		* @param number i 	The index of the row in obj.body
+		* @param number i 	The index of the row in table.body
 		*
 		* @return <tr>|undefined 	The removed row or undefined if none are left
 		*/
-		obj.removeRow=function removeRow(i){
-			var row=obj.body[i];
+		table.removeRow=function removeRow(i){
+			var row=table.body[i];
 			if(row){
 				tbody.removeChild(row);
 				return row;
@@ -1268,32 +1327,57 @@ module.exports=function export_elemX({cX,_log}){
 			}
 		}
 
-		obj.empty=function empty(i){
-			while(obj.body.length){
-				obj.removeRow(0);
+		/*
+		* Remove all rows in the table
+		*/
+		table.empty=function empty(i){
+			while(table.body.length){
+				table.removeRow(0);
 			}
 		}
 
-		obj.addCol=function addCol(name){
+		/*
+		* Add a cell to every row in the table
+		* @param string name 	The name of the new column
+		* @return array 		Array of newly created <td> elems (with hidden props, @see createCell())
+		*/
+		table.addCol=function addCol(name){
+			if(columns.includes(name))
+				_log.throwCode('EALREADY',`A column named '${name}' already exists in the table`);
+
+			//Add to list of columns
 			columns.push(name);
+
+			//Add header
 			addTh(name);
-			obj.body.forEach(row=>{
-				let td=document.createElement('td');
-				row._tr.appendChild(td);
-				row[col]=td;
-			})
+
+			//Add to each row
+			return table.body.forEach(row=>createCell(row,name));
 		}
 
+		/*
+		* Get a "column" of the table
+		* @param string name 	The name of the new column
+		* @return array 		Array of live <td> elems (with hidden props, @see createCell())
+		*/
+		table.getCol=function getCol(name){
+			if(columns.includes(name))
+				return table.body.map(row=>row[name]);
+			else
+				return undefined;
+		}
+
+
 		var colClass; 
-		obj.addColClass=function addColClass(col,cls){
+		table.addColClass=function addColClass(col,cls){
 			if(!colClass)
 				colClass={};
 
 			if(!colClass.hasOwnProperty(col))
 				colClass[col]=[];
 			colClass[col].push(cls);
-			obj.head[col].classList.add(cls);
-			obj.body.forEach(row=>row[col].classList.add(cls));
+			table.head[col].classList.add(cls);
+			table.body.forEach(row=>row[col].classList.add(cls));
 		}
 
 
@@ -1304,7 +1388,7 @@ module.exports=function export_elemX({cX,_log}){
 
 
 		//Now return the object
-		return obj;
+		return table;
 	}
 
 
@@ -1321,7 +1405,7 @@ module.exports=function export_elemX({cX,_log}){
 	* @return <HTMLElement> 	A <button> element
 	*/
 	function createCustomEventButton(buttonText,eventName=undefined,details=undefined){
-		vX.checkTypes(['string',['string','undefined']],[buttonText,eventName]);
+		cX.checkTypes(['string',['string','undefined']],[buttonText,eventName]);
 
 		let button=document.createElement('button');
 		button.innerHTML=buttonText;
@@ -1531,7 +1615,20 @@ module.exports=function export_elemX({cX,_log}){
 	}
 
 
-
+	/*
+	* Check if a selector matches an elem using either querySelectorAll() or getElementsByClassName instead of .matches() 
+	* which doesn't seem to work with all selectors (especially those containing special characters)
+	*
+	* @param <HTMLElement> elem
+	* @param string selectors
+	* @opt bool useClassName 	Default false => use querySelectorAll(), if true => use getElementsByClassName()
+	*
+	* @return <HTMLElement>|undefined 	The passed in $elem or undefined
+	*/
+	function matchElem(elem,selector,useClassName=false){
+		var func=document.body[(useClassName?'getElementsByClassName':'querySelectorAll')];
+		return Array.from(func.call(elem.parentNode,selector)).find(child=>elem==child);
+	}
 
 
 	/*
@@ -1540,8 +1637,8 @@ module.exports=function export_elemX({cX,_log}){
 	*
 	* @param <HTMLElement>|<Nodelist> targets
 	* @param string|array selectors
-	* @flag 'group' 	Group nodes by selector
-	* @flag 'class' 	Use getElementsByClassName instead which is faster. 
+	* @flag 'group' 	Group nodes by selector. NOTE: nodes can match multiple selectors
+	* @flag 'class' 	Use getElementsByClassName (which is faster) instead of querySelectorAll
 	* @flag 'self' 		If also using 'class', remember to seperate multiple classes with '.' NOT whitespace
 	*
 	* @throws <ble TypeError>
@@ -1551,43 +1648,55 @@ module.exports=function export_elemX({cX,_log}){
 	*/
 	function multiQuerySelector(targets,selectors,...flags){
 		var types=cX.checkTypes([['node','nodelist'],['string','array'],['array','undefined','string']],arguments);
-		targets=(types[0]=='node' ? [targets] : Array.from(targets));
-		selectors=(types[1]=='string' ? [selectors] : Array.from(selectors));
-		flags=(types[3]=='string' ? [flags] : flags) || [];
-		
-		let group=flags.includes('group')
-			,self=flags.includes('self')
-			,cls=flags.includes('class')
-		;
-
-		let func=(cls?'getElementsByClassName':'querySelectorAll');
-		
-		const all=group ? {} : [];
-		
-		for(let selector of selectors){
-			let arr=all;
-			if(group){
-				if(!all.hasOwnProperty(selector))
-					group[selector]=[];
-				arr=group[selector]
-			}
+		try{
+			//Handle diff types of args
+			targets=(types[0]=='node' ? [targets] : Array.from(targets));
+			selectors=(types[1]=='string' ? [selectors] : Array.from(selectors));
+			flags=(types[3]=='string' ? [flags] : flags) || [];
 			
-			//For the sake of .matches() we make sure single class names are prepended by a '.'. If
-			//the user has supplied something like 'clsA clsB' then it's their own damn fault
-			if(cls && self && selector.charAt(0)!='.'){
-				selector='.'+selector;
-			}
-
-			for(let target of targets){
-				arr.push.apply(arr,Array.from(target[func].call(target,selector)));
+			//Check which flags are set...
+			const group=flags.includes('group')
+				,checkSelf=flags.includes('self')
+				,useClassName=flags.includes('class')
 				
-				if(self && target.matches(selector)){
-					arr.push(target)
+				//...then based on that determine 'func' and results 'holder'
+				,func=document.body[(useClassName?'getElementsByClassName':'querySelectorAll')]
+				,holder=(group ? {} : [])
+			;
+
+			
+			//Now loop over all the selectors and run the func on each target to populate the holder
+			var selector; //make sure it's defined for whole function so catch() vv can use it
+			for(selector of selectors){
+				//If we're grouping make sure there is an array for this selector selector
+				let arr=holder;
+				if(group){
+					if(!holder.hasOwnProperty(selector))
+						holder[selector]=[];
+					arr=holder[selector]
+				}
+				
+
+				for(let target of targets){
+					//Run the func on this target using this selector
+					arr.push.apply(arr,Array.from(func.call(target,selector)));
+					
+					//If we're checking the target itself, run the func on its parent and see if its included
+					if(checkSelf && matchElem(target,selector,useClassName)){
+						arr.push(target)                  
+					}
 				}
 			}
-		}
 
-		return all;
+			//Return all matches
+			return holder;
+		}catch(err){
+			if(err.toString().indexOf('is not a valid selector')>-1){
+				_log.makeError('Invalid selector:',selector,arguments).setCode("SyntaxError").exec().throw();
+			}
+			_log.warn("BUGBUG. Undocumented error caught. Dev: either prevent or add to func description.");
+			_log.throw(err,arguments);
+		}
 	}
 
 
