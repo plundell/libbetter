@@ -17,6 +17,7 @@ module.exports=function export_aX({_log,vX}){
 	    ,'flatten':flatten
 	    ,'rowsToString':rowsToString
 	    ,'getFirstOfType':getFirstOfType
+	    ,getFirstOfTypeOrThrow
 	    ,'arrayDiff':arrayDiff
 	    ,'sameArrayContents':sameArrayContents
 	    ,'anyArrayOverlap':anyArrayOverlap
@@ -164,7 +165,7 @@ module.exports=function export_aX({_log,vX}){
 
 		if(vX.checkType(['array','object'],arr)=='object'){
 			if(typeof arr.length!='number')
-				_log.throwType("arg #1 to be an array-like object",arr);
+				_log.throwType("arg #1 to getFirstOfType() to be an array-like object",arr);
 			else
 				arr=Array.from(arr);
 		}
@@ -179,6 +180,17 @@ module.exports=function export_aX({_log,vX}){
 			}
 		}
 		return undefined;
+	}
+
+
+	/*
+	* Like @see getFirstOfType() but will throw if nothing was found
+	*/
+	function getFirstOfTypeOrThrow(arr, type){
+		var val=getFirstOfType.apply(this,arguments);
+		if(val==undefined)
+			_log.throwType(`args/arr to contain ${String(type)}`,arr);
+		return val
 	}
 
 
@@ -298,14 +310,18 @@ module.exports=function export_aX({_log,vX}){
 	}
 
 	/*
-	* Wrap any item in an array, or turn into an array, or keep as an array (ie. don't double wrap)
+	* Wrap any item in an array, or turn into an array, or keep as an array (ie. don't double wrap). If multiple
+	* args are passed, they are all concated
 	*
-	* @param any|undefined x 	If undefined (and only if undefined) the returned array will be empty
+	* NOTE: Any undefined passed will be ignored (ie. the resulting array will NOT contain an index with value undefined)
+	*
+	* @params... any|undefined x 	
+	*
 	* @return array
 	*/
 	function makeArray(){
 		var array=[];
-		var arrays=Array.from(arguments).forEach(x=>{
+		Array.from(arguments).forEach(x=>{
 			switch(vX.varType(x)){
 				case 'nodelist':
 					array=array.concat(Array.from(x)); 
@@ -323,7 +339,7 @@ module.exports=function export_aX({_log,vX}){
 				case 'array':
 					array=array.concat(x); 
 					break;
-				case 'undefined':
+				case 'undefined': //don't include undefined
 					break;
 				 //for clarity we list the rest
 				case 'string':

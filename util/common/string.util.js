@@ -135,10 +135,10 @@ module.exports=function export_stX({_log,vX}){
 
 
 	/*
-	* More capable substring function, able to start from end of string
+	* More capable substring function, able to start and stop based on end of string
 	*/
 	function substring(str,startIndex,length){
-		vX.checkTypes(['string','number',['number','undefined']],str);
+		vX.checkTypes(['string','number',['number','undefined']],arguments);
 		//If it starts after the string ends, then return nothing
 		if(startIndex>str.length)
 			return '';
@@ -151,6 +151,8 @@ module.exports=function export_stX({_log,vX}){
 
 		if(length>0){
 			var endIndex=Math.min(startIndex+length, str.length); //end index
+		
+		//Count from end of string
 		}else if(length<0){
 			endIndex=str.length+length
 			

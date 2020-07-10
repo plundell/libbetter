@@ -54,7 +54,7 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 
 		,'groupSignalsBySSID':groupSignalsBySSID
 		,'getIfaceState':getIfaceState
-		,listWifiInterfaces
+		,getInterfaces
 		,isWifiIface
 		,'getIpAddresses':getIpAddresses
 		,'isConfigured':isConfigured
@@ -1599,6 +1599,33 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 
 
 	/*
+	* Check if we can reach the internet by pinging
+	*
+	* @opt bool thrw 	Default false. If true errors will be thrown if we can't reach the internet
+	*
+	* @throw ENXIO 	No ip configured
+	* @throw ENETUNREACH Could not reach internet
+	*
+	* @return boolean
+	*/
+	function canReachInternet(thrw=false){
+		if(!getIpAddresses('first')){
+			if(thrw)
+				log.throwCode('ENXIO','No IP is configured on any interface');
+			else
+				return false;
+		}
+
+		if(!pingSync('8.8.8.8')){
+			if(thrw)
+				log.throwCode('ENETUNREACH','Could not ping Googles DNS server');
+			else
+				return false;	
+		}
+	}
+
+
+	/*
 	* @param string iface
 	*
 	* @return Promise({up,link})
@@ -1610,12 +1637,29 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 	}
 
 
-	function listWifiInterfaces(){
-		return Object.keys(iw_listInterfaces);
+	/*
+	* Get all interfaces that exist on this machine (even if they're not configured with an ip)
+	* and the type they are
+	*
+	* @return object 	Keys are eg. 'lo' or 'eth0', values are one of 'wifi', 'eth', 'loopback'
+	*/
+	function getInterfaces(){
+		var interfaces=cX.objCreateFill(Object.keys(iw_listInterfaces()),'wifi');
+		cpX.execFileSync('ip',['link','show']).stdout.split(/^\d+:\s+/m).forEach(str=>{
+			str=str.trim();
+			if(str){
+				let iface=str.substr(0,str.indexOf(':'));
+				if(iface && !interfaces.hasOwnProperty(iface)){
+					interfaces[iface]=(str.indexOf('LOOPBACK')>1 ? 'loopback': 'eth')
+				}
+			}
+		})
+		return interfaces;
 	}
 
+
 	function isWifiIface(iface){
-		return listWifiInterfaces().includes(iface);
+		return iw_listInterfaces().hasOwnProperty(iface);
 	}
 
 	/* 
@@ -1642,6 +1686,8 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 		             <UP, LOWER_UP> flags are set, else it's usually 'state DOWN'. However, during certain
 		             transitions it can show eg. 'UNKNOWN' or 'DORMANT' and we can get seemingly conflicting 
 		             flags, like when connecting to a wifi (see last example^^)
+
+		return object {link,up}
 	*/
 	function parseIpLinkOutput(str){
 		var info={up:false,link:false};
@@ -1729,6 +1775,7 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 		//First we parse the passed in flags
 		var family=cX.extractItems(flags,[4,6]).find(f=>f); //first mentioned family is included
 		var prop=cX.extractItems(flags,['address','netmask','family','mac','internal','cidr']).find(p=>p); //first mentioned prop 
+		var type=cX.extractItems(flags,['wired','wireless','loopback']).find(t=>t); //first mentioned type 
 
 		var exclude=flags.filter(iface=>iface.substring(0,1)=='!').map(iface=>iface.substring(1));
 
@@ -1780,20 +1827,23 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 		}
 		
 		//Now we add the type of interface and the interface name
-		var wifis=listWifiInterfaces();
-		
-//STOPSTOP 2020-07-01: the list of wifis is emtpy
-		log.highlight('red',wifis);
-
-
+		var types=getInterfaces();
 		for(let iface in interfaces){
+			
+			//If it's not the right type, get rid of it
+			if(type && types[iface]!=type){
+				delete interfaces[iface];
+				continue;
+			}
+
 			//For same handling we turn everything into an array (don't worry, it doesn't get saved)
 			cX.makeArray(interfaces[iface]).forEach(block=>{
 				if(typeof block=='object'){
 					block.iface=iface;
-					block.type=wifis.includes(iface)?'wireless':'wired'
+					block.type=types[iface];
 				}
 			})
+
 		}
 
 		//If we specified any iface to include, remove all others
@@ -2494,6 +2544,16 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 		return cX.execFileInPromise('ping',[ip,'-c',1]).then(()=>true,()=>false);
 	}
 
+
+	function pingSync(ip){
+		validateIp(ip,true)
+		try{
+			cX.execFileSync('ping',[ip,'-c',1])
+			return true;
+		}catch(err){
+			return false;
+		}
+	}
 
 
 	return netX;

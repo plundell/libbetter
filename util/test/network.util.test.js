@@ -21,7 +21,7 @@ async function testNetX(dep){
 
 		//First thing we do is load the module under test, this will show any syntax errors right away
 		console.log('----------- TESTING: netX ----------');
-		const loader=require('./network.util.js');
+		const loader=require('../node/network.util.js');
 		if(typeof loader!='function'){
 			console.error(loader);
 			throw new TypeError("network.util.js should return a loader function, got ^^")

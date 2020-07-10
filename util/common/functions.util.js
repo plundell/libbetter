@@ -111,7 +111,9 @@ module.exports=function export_fX({_log,vX,aX}){
 	* @return void
 	*/
 	function renameFunction(fn,name){
-		vX.checkTypes(['function','string'],arguments);
+		var args=Array.from(arguments);
+		fn=aX.getFirstOfTypeOrThrow(args,'function');
+		name=aX.getFirstOfTypeOrThrow(args,'string');
 		Object.defineProperty(fn,'name',{value:name,writable:false, configurable:true})
 	}
 

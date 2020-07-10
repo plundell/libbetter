@@ -26,6 +26,7 @@ module.exports=function export_oX({_log,vX}){
 		,'extract':extract
 		,'emptyObject':emptyObject
 		,'getFirstMatchingProp':getFirstMatchingProp
+		,nestedHas
 		,'nestedGet':nestedGet
 		,'nestedSet':nestedSet
 		,nestedAssign
@@ -246,22 +247,34 @@ module.exports=function export_oX({_log,vX}){
 	*/
 	function flattenObject(obj,delim='.'){
 		vX.checkTypes(['object','string'],[obj,delim]);
-		var flat={};
-		var address=[];
-		var loop=(self)=>{
-			Object.entries(self).forEach(([key,value])=>{
-				if(vX.isPrimitive(value)){
-					flat[address.concat(key).join(delim)]=value;
-				}else{
-					address.push(key);
-					loop(value);
-					address.pop();
+		try{
+			var flat={};
+			var address=[];
+			var depth=0;
+			var flattenObject_loop=(self)=>{
+				if(++depth>30){
+					throw 'CircularRef'
 				}
-			})
+				Object.entries(self).forEach(([key,value])=>{
+					if(value && typeof value=='object'){
+						address.push(key);
+						flattenObject_loop(value);
+						address.pop();
+					}else{
+						flat[address.concat(key).join(delim)]=value;
+					}
+				})
+			}
+			flattenObject_loop(obj);
+			return flat;
+			
+		}catch(err){
+			if(String(err)=='CircularRef')
+				_log.makeError("Circular ref loop while flattening object:",obj).throw();
+			else
+				_log.makeError(err).throw();
 		}
-		loop(obj);
 
-		return flat;
 	}
 
 
@@ -467,13 +480,15 @@ module.exports=function export_oX({_log,vX}){
 	/*
 	* Check if a nested prop exists on an object
 	*
+	* NOTE: this will NOT alter $keypath
+	*
 	* @throws <ble TypeError>
 	*
 	* @return boolean
 	*/
 	function nestedHas(obj,keypath){
 		try{
-			return typeof nestedGet(obj,keypath)!='undefined'
+			return typeof nestedGet(obj,vX.copy(keypath))!='undefined'
 		}catch(err){
 			switch(err.code){
 				case 'TypeError':
@@ -491,10 +506,10 @@ module.exports=function export_oX({_log,vX}){
 	/*
 	* Get a nested child from a multi-level object or array
 	*
+	* NOTE: $keypath will be altered by this function, containing any remaining keys after recursion has happened to the available depth
+	*
 	* @param array|object obj
-	* @param array keypath 					Array of keys, each pointing to one level deeper. NOTE: this array will be altered
-	*											by this function, containing any remaining keys after recursion has happened
-	*											to the available depth
+	* @param array keypath 					Array of keys, each pointing to one level deeper. 
 	* @param bool returnLastObject 			Default false => if a nested property doesn't exist, undefined will be returned. 
 	*											true=>the last existing object will be returned and the keypath reflects
 	*											the remaining keys

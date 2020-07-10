@@ -644,8 +644,10 @@ module.exports=function export_httpX({BetterLog,cX,fsX,netX,pump,...dep}){
 		,'codes':codes
 		,'mime':mime
 		,'mimeLookup':mimeLookup
+		,webResourceExists
 		,makeUrlObj
 		,'get':get
+		,head
 		,'request':request
 		,'fetchIncomingMessage':fetchIncomingMessage
 		,'parseMessageData':parseMessageData

@@ -13,7 +13,37 @@
 
 module.exports=function export_vX({varType,logVar,_log}){
     
-	var _exports={
+	//Sourced from https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects
+	const builtins=[
+		Infinity,NaN,undefined,globalThis
+		,eval,/*uneval,*/isFinite,isNaN,parseFloat,parseInt,decodeURI,decodeURIComponent,encodeURI,encodeURIComponent
+		,Object,Function,Boolean,Symbol
+		,Error,/*AggregateError ,*/EvalError,/*InternalError ,*/RangeError,ReferenceError,SyntaxError,TypeError,URIError
+		,Number,BigInt,Math,Date
+		,String,RegExp
+		,Array,Int8Array,Uint8Array,/*Uint8ClampedArray,*/Int16Array,Uint16Array,Int32Array,Uint32Array,Float32Array,Float64Array,BigInt64Array,BigUint64Array
+		,Map,Set,WeakMap,WeakSet
+		,ArrayBuffer,/*SharedArrayBuffer ,*/Atomics ,DataView,JSON
+		,Promise//,Generator,GeneratorFunction,AsyncFunction
+		,Reflect,Proxy
+		//,Intl,Intl.Collator,Intl.DateTimeFormat,Intl.ListFormat,Intl.NumberFormat,Intl.PluralRules,Intl.RelativeTimeFormat,Intl.Locale
+		//,WebAssembly,WebAssembly.Module,WebAssembly.Instance,WebAssembly.Memory,WebAssembly.Table,WebAssembly.CompileError,WebAssembly.LinkError,WebAssembly.RuntimeError
+	];
+	if(typeof uneval!='undefined'){builtins.push(uneval)}
+	if(typeof AggregateError!='undefined'){builtins.push(AggregateError)}
+	if(typeof InternalError!='undefined'){builtins.push(InternalError)}
+	if(typeof Uint8ClampedArray!='undefined'){builtins.push(Uint8ClampedArray)}
+	if(typeof SharedArrayBuffer!='undefined'){builtins.push(SharedArrayBuffer)}
+	if(typeof Generator!='undefined'){builtins.push(Generator)}
+	if(typeof GeneratorFunction!='undefined'){builtins.push(GeneratorFunction)}
+	if(typeof AsyncFunction!='undefined'){builtins.push(AsyncFunction)}
+	if(typeof Intl!='undefined'){builtins.push(Intl,Intl.Collator,Intl.DateTimeFormat,Intl.ListFormat,Intl.NumberFormat,Intl.PluralRules,Intl.RelativeTimeFormat,Intl.Locale)}
+	if(typeof WebAssembly!='undefined'){builtins.push(WebAssembly,WebAssembly.Module,WebAssembly.Instance,WebAssembly.Memory,WebAssembly.Table,WebAssembly.CompileError
+		,WebAssembly.LinkError,WebAssembly.RuntimeError)}
+
+	Object.freeze(builtins)
+
+	const _exports={
 		'varType':varType
 		,'logVar':logVar
 		,'checkType':checkType
@@ -32,11 +62,12 @@ module.exports=function export_vX({varType,logVar,_log}){
 		,'tryJsonStringify':tryJsonStringify
 		,'stringifySafe':stringifySafe
 		,'copy':copy
+		,deepCopy
+		,getPrototypeChain
 		,'instanceOf':instanceOf
 		,stripFullLineComments
+		,builtins
 	};
-
-
 
 
 
@@ -430,6 +461,7 @@ module.exports=function export_vX({varType,logVar,_log}){
 			case 'string':
 			case 'number':
 			case 'boolean':
+			case 'bigint':
 				return true;
 		}
 		return false;
@@ -731,9 +763,19 @@ module.exports=function export_vX({varType,logVar,_log}){
 
 
 
-
+	/*
+	* Copy any value, decoupling it from the original 
+	*
+	* NOTE: Primitives and functions are just returned as is
+	*
+	* @param any x
+	*
+	* @return any 	@see $x
+	*/
 	function copy(x){
 		switch(varType(x)){
+			case 'arguments':
+				x=Array.from(x);
 			case 'object':
 			case 'array':
 				return JSON.parse(JSON.stringify(x));
@@ -741,10 +783,171 @@ module.exports=function export_vX({varType,logVar,_log}){
 				return x.cloneNode(true);
 			case 'nodelist':
 				return Array.from(x,node=>node.cloneNode(true));
+			case 'promise':
+				return new Promise((resolve,reject)=>{x.then(resolve,reject)});
 			default:	
 				return x;
 		}
 	}
+
+
+	/*
+	* Like @see copy(), but objects and functions are copied resursively so prototype chains are
+	* also decoupled
+	*
+	* @param any x
+	*
+	* @return any 	@see $x
+	*/
+	function deepCopy(x){
+		// console.log('Calling deepCopy() on:',logVar(x));
+
+		//To maintain all internal refs, once something has been copied that copy should be used every time, so 
+		//we create a map to hold them
+		var refs=new Map();
+
+
+		function copyPrototypeChain(x){
+			//First get all the objects along the chain...
+			var chain=getPrototypeChain(x);
+			
+			//If no chain was found then just return the most fundamental of all prototypes, the Object
+			if(!chain.length){
+				return Object.getPrototypeOf({});
+			}
+
+			//...then start from the end and deepCopy them all, returning the last one
+			var obj;
+			while(chain.length){
+				obj=_deepCopy(chain.pop());
+			}
+			return obj;
+		}
+
+		//To prevent infinite loop we keep track of recursions...
+		var depth=0;
+
+		function _deepCopy(x){
+			//Any builtins we just return as is, ie. we DON'T copy them
+			if(builtins.includes(x))
+				return x;
+
+			//If we've gone too deep, throw to prevent long loop that exceeds stack...
+			if(depth>30){
+				console.error(x)
+				_log.throw(new RangeError('Maximum call stack size may be exceeded due to infinite loop, aborting!'));
+			}
+
+			//Anything we've already copied (impling something is referenced more than once, eg a constructor being set on it's own prototype)
+			//we return that copy/ref (see top of func^)
+			if(refs.has(x))
+				return refs.get(x);
+
+			switch(varType(x)){
+				case 'arguments':
+					x=Array.from(x);
+				case 'object':
+				case 'array':
+					//Start by creating a new empty object with the same prototype chain...
+					depth++;
+					var y=Object.create(copyPrototypeChain(x));
+					depth--;
+					//...then store this new object so it's used every time x might come up further down the structure...
+					refs.set(x,y);
+
+					//...then loop through all the own properties and set them on this new object, calling this method 
+					//recursively (ie. if we find any nested objects or functions)
+					let name=x.constructor.name;
+					for(let [key,desc] of Object.entries(Object.getOwnPropertyDescriptors(x))){
+						try{
+							depth++;
+							if(desc.hasOwnProperty('value')){
+								desc.value=_deepCopy(desc.value);
+							}else{
+								if(desc.set)desc.set=_deepCopy(desc.set)
+								if(desc.get)desc.get=_deepCopy(desc.get)
+							}
+							depth--;
+							Object.defineProperty(y,key,desc)
+						}catch(err){
+							_log.makeError(`Failed to deepCopy() key '${key}'`,err)
+						}
+					}
+					return y;
+
+				case 'function':
+					//Wrap in another function but make sure to retain the name
+					let tmp={};
+					let fn=tmp[x.name]=function(){return x.apply(this,arguments);}
+					refs.set(x,fn); //store for future use...
+
+					Object.defineProperty(fn,'name',{value:x.name,writable:true,configurable:true}); //not sure if this is necessary
+					
+					//Decouple prototype chain and set the new function as the constructor on said chain (also storing ref)
+					depth++;
+					if(!refs.has(x.prototype))
+						refs.set(x.prototype,copyPrototypeChain(x));
+					depth--;
+					fn.prototype=refs.get(x.prototype);
+
+					try{
+						Object.defineProperty(fn.prototype,'constructor',{value:fn,configurable:true})
+					}catch(err){
+						_log.makeError(err).append(':').addExtra(fn.prototype,proto).throw();
+					}
+
+					return fn;
+
+				case 'node':
+				case 'nodelist':
+				case 'promise':
+				case 'error': //TODO: other handling??
+				case 'ble':   //TODO: other handling??
+				default:	
+					let c=copy(x);
+					refs.set(x,c);
+					return c;
+			}
+		}
+		try{
+			return _deepCopy(x);
+		}catch(err){
+			_log.warn(`Failed to deepCopy ${logVar(x)}`,err);
+			// return copy(x);
+		}
+	}
+
+
+	/*
+	* Get the prototype chain
+	*
+	* @param object|function
+	* @return array
+	*/
+	function getPrototypeChain(x){
+		let t=typeof x;
+		switch(typeof x){
+			case 'object':
+				var proto=Object.getPrototypeOf(x); break;
+			case 'function':
+				proto=x.prototype; break;
+			default:
+				_log.throwType('function or instance',x);
+		}
+
+		//Loop ever deeper and fetch all the prototypes in order
+		var chain=[],i=0;
+		while(proto && typeof proto=='object'){
+			chain.push(proto);
+		    proto=Object.getPrototypeOf(proto)
+		    i++;
+		    if(i>20) //arbitrary number
+		    	throw new Error('Too many prototypes in chain');
+		}
+
+		return chain;
+	}
+
 
 
 

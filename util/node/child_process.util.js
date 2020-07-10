@@ -73,7 +73,7 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 		,onAnyExitSignal
 	}
 
-	
+
 
 	/*
 	* @param string 	cmd 		The command to run

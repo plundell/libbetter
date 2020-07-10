@@ -1635,7 +1635,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
     		log.throw("Cannot store smarty when prop '_unlink' is already defined")
     	if(smarty.has('_read'))
     		log.throw("Cannot store smarty when prop '_read' is already defined")
-    	smarty._private.reservedKeys.push('_detach','_unlink','_read');
+    	smarty._private.reservedKeys.push('_unlink','_read');
 
     	//Create the storage
         smarty._private.storage=new StoredItem(
@@ -1645,33 +1645,19 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
         	,smarty._log
         );
 
-        //Create additional flag that controlls if changes are written to file
+        //Create additional flag that controlls if changes are written to file, which can easily to turned off for a while if needed
         smarty._private.attached=true;
-        /*
-		* Stop storeing changes to smarty on the hdd
-		* @return void
-        */
-        Object.defineProperty(smarty,'_detach',{value:function detachStoredSmarty(){
-        	smarty._private.attached=false;
-        }})
-
-        /*
-		* Unlink the underlying file (and stop storing changes)
-		* @return void
-        */
-        Object.defineProperty(smarty,'_unlink',{value:function unlinkStoredSmarty(){
-         	smarty._detach();
-         	smarty._private.storage.unlink();
-         }});
 
 
        	//Make sure there is a snapshot happening so we have somethingn to listen for
-    	if(!smarty.hasSnapshot())
+    	if(!smarty.hasSnapshot()){
+    		var removeSnapshot=true;
     		smarty.setupSnapshot(1000);
+    	}
 
 
         //Then start listening to the snapshot and write the whole thing to HDD, as long as we're still attached (see ^^)
-        smarty.on('snapshot',()=>{
+        function writeToDisk(){
         	if(smarty._private.attached){
         		if(!smarty._private.storage.stat.exists){
         			log.note("Creating file for stored smarty NOW @",smarty._private.storage.filepath);
@@ -1679,7 +1665,27 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
         		}
         		smarty._private.storage.write(smarty.stupify()).catch(log.error)
         	}
-        });
+        };
+		smarty.on('snapshot',writeToDisk)
+
+        /*
+		* Unlink the underlying file (and stop storing changes)
+		* @return void
+        */
+        Object.defineProperty(smarty,'_unlink',{value:function unlinkStoredSmarty(){
+        	//Remove the listener
+        	smarty.off('snapshot',writeToDisk);
+
+        	//If we added snapshot then remove it again
+        	if(removeSnapshot)
+        		smarty.removeSnapshot();
+
+        	//Delete the file
+         	smarty._private.storage.unlink();
+
+         	//remove this prop
+         	delete smarty._private.storage;
+         }});
 
 
         Object.defineProperty(smarty,'_read',{value:function readFromStorage(){
