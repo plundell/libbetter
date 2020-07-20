@@ -41,7 +41,10 @@ module.exports=function export_vX({varType,logVar,_log}){
 	if(typeof WebAssembly!='undefined'){builtins.push(WebAssembly,WebAssembly.Module,WebAssembly.Instance,WebAssembly.Memory,WebAssembly.Table,WebAssembly.CompileError
 		,WebAssembly.LinkError,WebAssembly.RuntimeError)}
 
+
 	Object.freeze(builtins)
+
+
 
 	const _exports={
 		'varType':varType
@@ -796,7 +799,7 @@ module.exports=function export_vX({varType,logVar,_log}){
 	* also decoupled
 	*
 	* @param any x
-	*
+	* @throw <ble> 	If we fail to perform the copy
 	* @return any 	@see $x
 	*/
 	function deepCopy(x){
@@ -806,31 +809,41 @@ module.exports=function export_vX({varType,logVar,_log}){
 		//we create a map to hold them
 		var refs=new Map();
 
+		//To prevent infinite loop we keep track of recursions...
+		var depth=0;
+
+		//The most fundamental of all prototypes is that of the Object constructor, which means we may need it once or twice, so
+		//let's get it once
+		var objectPrototype=Object.getPrototypeOf({});
 
 		function copyPrototypeChain(x){
+			// console.log('Calling copyPrototypeChain() on:',logVar(x));
 			//First get all the objects along the chain...
 			var chain=getPrototypeChain(x);
 			
-			//If no chain was found then just return the most fundamental of all prototypes, the Object
-			if(!chain.length){
-				return Object.getPrototypeOf({});
+
+			//If no chain was found, or just contains the Object prototype, then just return the Object prototype
+			if(!chain.length || (chain.length==1 && chain[0]==objectPrototype)){
+				return objectPrototype;
 			}
 
 			//...then start from the end and deepCopy them all, returning the last one
-			var obj;
+			// console.log(`the prototype chain was ${chain.length} items deep:`,chain);
+			var obj,i=0;
 			while(chain.length){
-				obj=_deepCopy(chain.pop());
+				let link=chain.pop();
+				if(link==objectPrototype){
+					// console.log(`chain link ${++i}: <prototype:Object>`);
+					obj=objectPrototype
+				}else{
+					// console.log(`chain link ${++i}, deep copying:`,link);
+					obj=_deepCopy(link); //to save one call we first check if this is the object prototype
+				}
 			}
 			return obj;
 		}
 
-		//To prevent infinite loop we keep track of recursions...
-		var depth=0;
-
-		function _deepCopy(x){
-			//Any builtins we just return as is, ie. we DON'T copy them
-			if(builtins.includes(x))
-				return x;
+		function _deepCopy(x,_key,parent){
 
 			//If we've gone too deep, throw to prevent long loop that exceeds stack...
 			if(depth>30){
@@ -840,53 +853,104 @@ module.exports=function export_vX({varType,logVar,_log}){
 
 			//Anything we've already copied (impling something is referenced more than once, eg a constructor being set on it's own prototype)
 			//we return that copy/ref (see top of func^)
-			if(refs.has(x))
+			if(refs.has(x)){
+				// console.log('_deepCopy() already has a ref for:',logVar(x));
 				return refs.get(x);
+			}
 
+			// console.log('Calling _deepCopy() on:',logVar(x),_key);
+
+			let isArray=false;
 			switch(varType(x)){
 				case 'arguments':
 					x=Array.from(x);
-				case 'object':
 				case 'array':
+					isArray=true;
+				case 'object':
+
+					//Prototypes of builtin functions we just return...
+					try{
+						let builtinsIndex;
+						if(!isArray && x.constructor && (builtinsIndex=builtins.indexOf(x.constructor))>-1 && builtins[builtinsIndex].prototype==x){
+							// console.log('ignoring prototype of builtin constructor',builtins[builtinsIndex])
+							refs.set(x,x); //so we're quicker next time
+							return x;
+						}
+					}catch(err){
+						_log.throw("Problem trying to determine if arg was prototype of builtin.",err);
+					}
+
 					//Start by creating a new empty object with the same prototype chain...
 					depth++;
 					var y=Object.create(copyPrototypeChain(x));
 					depth--;
 					//...then store this new object so it's used every time x might come up further down the structure...
 					refs.set(x,y);
+					refs.set(y,y);
 
 					//...then loop through all the own properties and set them on this new object, calling this method 
 					//recursively (ie. if we find any nested objects or functions)
 					let name=x.constructor.name;
 					for(let [key,desc] of Object.entries(Object.getOwnPropertyDescriptors(x))){
+						let _desc={configurable:desc.configurable};
 						try{
 							depth++;
 							if(desc.hasOwnProperty('value')){
-								desc.value=_deepCopy(desc.value);
+								_desc.writable=desc.writable;
+								_desc.value=_deepCopy(desc.value,key,x);
 							}else{
-								if(desc.set)desc.set=_deepCopy(desc.set)
-								if(desc.get)desc.get=_deepCopy(desc.get)
+								if(desc.set)_desc.set=_deepCopy(desc.set,key,x)
+								if(desc.get)_desc.get=_deepCopy(desc.get,key,x)
 							}
 							depth--;
-							Object.defineProperty(y,key,desc)
+							Object.defineProperty(y,key,_desc)
 						}catch(err){
-							_log.makeError(`Failed to deepCopy() key '${key}'`,err)
+							_log.throw(`Failed to deepCopy() key '${key}'`,err);
 						}
 					}
 					return y;
 
 				case 'function':
+					//Builtin functions we just return...
+					if(builtins.includes(x)){
+						// console.log('ignoring builtin constructor',x)
+						return x;
+					}
+
+					var funcStr=String(x);
+					//Don't copy native functions. Yes, this leaves their prototypes open change.... not sure if we want to change that
+					if(funcStr.endsWith('{ [native code] }')){
+						// console.log(`ignoring native function '${x.name}' on`,parent)
+						refs.set(x,x);
+						return x;
+					}
+
+					//If the function has already been copied we wanted the if clause ^ to have caught it... apparently it didn't...
+					if(funcStr=='function(){/*deep copied function*/return x.apply(this,arguments);}'){
+						_log.warn(`BUGBUG: _deepCopy() was called with an already copied function '${x.name}', but somehow it never got stored in the "refs" map`,refs
+							,"This might mean that you've called deepCopy() again with the returned value of a previous call...");
+						refs.set(x,x);
+						return x;
+					}
+
 					//Wrap in another function but make sure to retain the name
 					let tmp={};
-					let fn=tmp[x.name]=function(){return x.apply(this,arguments);}
-					refs.set(x,fn); //store for future use...
-
+					tmp[x.name]=function(){/*deep copied function*/return x.apply(this,arguments);}
+					let fn=tmp[x.name];
 					Object.defineProperty(fn,'name',{value:x.name,writable:true,configurable:true}); //not sure if this is necessary
+					
+					//store for future use, do this BEFORE copying the prototype chain since there may be circular refs down it...
+					// console.log('storing function',x.name,funcStr)
+					refs.set(x,fn); 
+					refs.set(fn,fn);
 					
 					//Decouple prototype chain and set the new function as the constructor on said chain (also storing ref)
 					depth++;
-					if(!refs.has(x.prototype))
-						refs.set(x.prototype,copyPrototypeChain(x));
+					if(!refs.has(x.prototype)){
+						let chain=copyPrototypeChain(x);
+						refs.set(x.prototype,chain);
+						refs.set(chain,chain);
+					}
 					depth--;
 					fn.prototype=refs.get(x.prototype);
 
@@ -906,13 +970,14 @@ module.exports=function export_vX({varType,logVar,_log}){
 				default:	
 					let c=copy(x);
 					refs.set(x,c);
+					refs.set(c,c);
 					return c;
 			}
 		}
 		try{
 			return _deepCopy(x);
 		}catch(err){
-			_log.warn(`Failed to deepCopy ${logVar(x)}`,err);
+			_log.throw(`Failed to deepCopy ${logVar(x)}`,err);
 			// return copy(x);
 		}
 	}
