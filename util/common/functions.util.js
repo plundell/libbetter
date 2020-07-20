@@ -108,13 +108,14 @@ module.exports=function export_fX({_log,vX,aX}){
 	* @param function fn
 	* @param string name
 	*
-	* @return void
+	* @return $fn
 	*/
 	function renameFunction(fn,name){
 		var args=Array.from(arguments);
 		fn=aX.getFirstOfTypeOrThrow(args,'function');
 		name=aX.getFirstOfTypeOrThrow(args,'string');
 		Object.defineProperty(fn,'name',{value:name,writable:false, configurable:true})
+		return fn;
 	}
 
 
