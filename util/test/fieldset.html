@@ -1,0 +1,307 @@
+<!-- Run this file with:
+	  php -S localhost:8000 fieldset.html 
+-->
+<!DOCTYPE html>
+<html>
+<head>
+	<title>Test inputs</title>
+	<!-- This file should be hosted with php -S ./fieldset.html 0.0.0.0:8080 -->
+	<style type="text/css">
+		.toggle-wrapper{position: relative;display: inline-block;width: 2em;height: 1em;border:0 none;padding:0;}
+		.toggle-wrapper input {display:block;opacity: 0;width: 0;height: 0;}
+		.toggle-slider {position: absolute;cursor: pointer;top: 0;left: 0;right: 0;bottom: 0;border-radius: 1em;background-color: #ccc;-webkit-transition: .4s;transition: .4s;}
+		.toggle-slider:before {position: absolute;content: "";height: 0.8em;width: 0.8em;left: 0.1em;bottom: 0.09em;background-color: white;-webkit-transition: .4s;transition: .4s;border-radius: 50%;}
+		input:checked + .toggle-slider {background-color: #2196F3;}
+		input:focus + .toggle-slider {box-shadow: 0 0 1px #2196F3;}
+		input:checked + .toggle-slider:before {-webkit-transform: translateX(1em);-ms-transform: translateX(1em);transform: translateX(1em);}
+
+		#myForm{
+			line-height:2em;
+		}
+		label>fieldset{
+			display:inline-block;
+		}
+		input:invalid{
+			border:1px solid red;
+		}
+		input:valid{
+			border:1px solid green;
+		}
+	</style>
+</head>
+<body>
+	<form id="myForm" onsubmit="return false;">
+		<h3>Different types of Inputs</h3>
+		<div>
+			<label>
+				[radioset] Color:
+				<fieldset id="radioset" name='color' type='radioset'>
+					<label>green<input name="_color" type="radio" value='green'></label>
+					<label>blue<input name="_color" type="radio" value='blue'></label>
+					<label>red<input name="_color" type="radio" value='red'></label>
+				</fieldset>
+			</label>
+		</div>
+		<div>
+			<label>[checklist] Countries:
+				<fieldset id="checklist" name="countries" type="checklist">
+					<label>sweden<input name="_country_sweden" type="checkbox" value='sweden'></label>
+					<label>norway<input name="_country_norway" type="checkbox" value='norway'></label>
+					<label>denmark<input name="_country_denmark" type="checkbox" value='denmark'></label>
+				</fieldset>
+			</label>
+		</div>
+		<div>
+			<label>[text] Intro:
+				<input type="text" name="intro">
+			</label>
+		</div>
+		<div>
+			<label>[text pattern] IP:
+				<input name="ip" type="text" minlength="7" maxlength="15" size="15" pattern="^((\d{1,2}|1\d\d|2[0-4]\d|25[0-5])\.){3}(\d{1,2}|1\d\d|2[0-4]\d|25[0-5])$">
+			</label>
+		</div>
+		<div>
+			<label>[toggle] Call me:
+				<fieldset id="toggle" class="toggle-wrapper" name="callme" tabindex="0" onkeypress="javascript:if(event.key==' ')this.value=(!this.value)">
+					<input name="_callme" type="checkbox" tabindex="-1">
+					<span class="toggle-slider" onclick="javascript:event.stopImmediatePropagation()"></span>
+				</fieldset>
+			</label>
+		</div>
+		<div>
+			<label>[select] Sports:
+				<select name="sports">
+					<option value="basketball">Basketball</option>
+					<option value="football">Football</option>
+				</select>
+			</label>
+		</div>
+		<div>
+			<label>[number] Age:
+				<input type="number" name="age">
+			</label>
+		</div>
+		<div>
+			<label>[date] Birthday:
+				<input type="date" name="birthday">
+			</label>
+		</div>
+		<div>
+			<label>[time] Start:
+				<input type="time" name="start">
+			</label>
+		</div>
+		<div>
+			<label>[datetime-local] Stop:
+				<input type="datetime-local" name="stop">
+			</label>
+		</div>
+		<div>
+			<label>[week] Sportlov:
+				<input type="week" name="holiday">
+			</label>
+		</div>
+		<div>
+			<label>[image] Profile pic:
+				<input type="image" name="profile">
+			</label>
+		</div>
+		<div>
+			<label>[file] CV:
+				<input type="file" name="cv">
+			</label>
+		</div>
+	
+		<div>
+			<label>[color] Hair:
+				<input type="color" name="color">
+			</label>
+		</div>
+		<div>
+			<label>[input-button] Add 1:
+				<input type="button" name="add" value="Add">
+			</label>
+		</div>
+		<div>
+			<label>[button-button] Sub 1:
+				<!-- this will reload the page unless you set type=button -->
+				<button id='sub' name="sub">Sub</button>
+			</label>
+		</div>
+		<div>
+			<label>[tel] Telephone:
+				<input type="tel" name="telephone">
+			</label>
+		</div>
+		<div>
+			<label>[url] Webpage:
+				<input type="url" name="webpage">
+			</label>
+		</div>
+		<div>
+			<label>[range] Price:
+				<input type="range" name="price">
+			</label>
+		</div>
+		<fieldset id="people" name="people" type="table">	
+			<legend>[table] People:</legend>
+			<table>
+				<thead>
+					<tr>
+						<th>name</th>
+						<th>hobby</th>
+						<th>action</th>
+					</tr>
+				</thead>
+				<tbody>
+					<tr>
+						<td>patrik</td>
+						<td>
+							<input type="text" name="hobby">
+						</td>
+						<td>
+							<!-- having type=button prevents default -->
+							<button type="button" onclick="javascript:event.stopImmediatePropagation();this.dispatchEvent(new CustomEvent('edit',{bubbles:true}))">Save</button>
+						</td>
+					</tr>
+					<tr>
+						<td>ally</td>
+						<td>
+							<input id="tryChangingClass" type="text" name="hobby">
+						</td>
+						<td>
+							<button onclick="event.stopImmediatePropagation();this.dispatchEvent(new CustomEvent('edit',{bubbles:true}))">Save</button>
+						</td>
+					</tr>
+				</tbody>
+				<tfoot>
+					
+				</tfoot>
+			</table>
+		</fieldset>
+	</form>
+
+	
+
+
+	<footer>
+		<script type="text/javascript">
+		console.warn("LOADING PAGE",new Date())
+		/*------ fix fieldsets ------*/
+			let radioset=document.getElementById('radioset');
+			Object.defineProperty(radioset,'value',{
+				enumerable:true
+				,get:()=>{
+					let i=radioset.querySelector('input:checked');
+					return i==null ? undefined : i.value;
+				}
+				,set:(val)=>{
+					let i=radioset.querySelector(`input[value=${val}]`);
+					if(i){
+						i.checked=true;
+					}else{
+						//If the option doesn't exist then we unselect all
+						let i=radioset.querySelector('input:checked');
+						if(i)
+							i.checked=false;
+					}
+					return;
+				}
+			})
+			let checklist=document.getElementById('checklist');
+			Object.defineProperty(checklist,'value',{
+				enumerable:true
+				,get:()=>{
+					return Array.from(checklist.querySelectorAll('input[type=checkbox]:checked')).map(elem=>elem.value)
+				}
+				,set:(arr)=>{
+					if(cX.checkType(['primitive','array'],arr)!='array'){
+						arr=[arr];
+					}
+					//Set the state of each checkbox according to the array (ie. unselect all not mentioned)
+					checklist.querySelectorAll('input[type=checkbox]').forEach(elem=>elem.checked=arr.includes(elem.value));
+					return;
+				}
+			})
+			let toggle=document.getElementById('toggle');
+			Object.defineProperty(toggle,'value',{
+				enumerable:true
+				,get:()=>toggle.querySelector('input[type=checkbox]').checked
+				,set:(check)=>{toggle.querySelector('input[type=checkbox]').checked=check?true:false}
+			})
+
+			function changeTargetToFieldset(event){
+				if(event.target!=this){
+					event.stopImmediatePropagation();
+					setTimeout(()=>this.dispatchEvent(event))
+					 //^a timeout is required, else "DOMException: The event is already being dispatched.""
+				}
+			}
+			checklist.addEventListener('input',changeTargetToFieldset,{capture:true})
+			checklist.addEventListener('change',changeTargetToFieldset,{capture:true})
+			radioset.addEventListener('input',changeTargetToFieldset,{capture:true})
+			radioset.addEventListener('change',changeTargetToFieldset,{capture:true})
+			toggle.addEventListener('input',changeTargetToFieldset,{capture:true})
+			toggle.addEventListener('change',changeTargetToFieldset,{capture:true})
+			// toggle.addEventListener('click',changeTargetToFieldset,{capture:true})
+
+
+		/*------- fieldsets fixed ----------*/
+
+			//Listen to events comming from all inputs
+			var input;
+			let form = document.getElementById('myForm');
+			form.addEventListener('input',function onInput(evt){input=evt.target; console.log(`input '${evt.target.name}':`,evt.target.value)});
+			form.addEventListener('change',function onChange(evt){input=evt.target; console.log(`change '${evt.target.name}' to:`,evt.target.value)});
+			form.addEventListener('click',function onChange(evt){input=evt.target; console.log(`click '${evt.target.name}', value:`,evt.target.value,evt.target)});
+
+			//Add listeners for row buttons
+			form.addEventListener('edit',function onChange(evt){input=evt.target; console.log(`edit`,evt.target.closest('tr'))});
+
+			form.addEventListener('focusin',function onFocus(evt){input=evt.target; console.log('focusin:',evt.target)});
+
+
+
+		/*-------------- MutationObserver -----------*/
+		var observer = new MutationObserver(function (event) {
+		  console.log(event)   
+		})
+
+
+
+		setTimeout(function () {
+			observer.observe(document.body, {
+			  	attributes: true
+			  	,attributeFilter: ['class']
+	  			,attributeOldValue: true
+	  			,childList: true
+				,subtree: true
+			})
+
+			let input=document.getElementById('tryChangingClass')
+			console.log('changing class of: ',input);
+			input.classList.add('xxxBind');
+			input.classList.add('coolclass');
+			input.classList.add('banan');
+
+			console.log("setting it's value...")
+			input.value=5
+
+			var div=document.createElement('div');
+			var span=document.createElement('span');
+			span.classList.add('xxxBind');
+			div.appendChild(span);
+			console.log('appending new elem',div);
+			input.parentElement.appendChild(div);
+
+			setTimeout(()=>div.removeChild(span),1000)
+			setTimeout(()=>{input.classList.remove('xxxBind');input.classList.remove('banan');},1100)
+
+		}, 1000)
+
+
+		</script>
+	</footer>
+</body>
+</html>
