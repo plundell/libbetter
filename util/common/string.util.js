@@ -31,7 +31,8 @@ module.exports=function export_stX({_log,vX}){
 	    ,linuxTableToObjects
 	    ,progressBar
 	    ,queryStrToObj
-		,dashToCamel
+		,toCamelCase
+		,'dashToCamel':toCamelCase
 		,randomString
 		,getUniqueString
 		,safeReplace
@@ -539,7 +540,9 @@ module.exports=function export_stX({_log,vX}){
 	* @param string str
 	* @return string
 	*/
-	function dashToCamel(str){
+	function toCamelCase(str,delim='-'){
+		if(delim!='-')
+			str=str.replace(delim,'-')
 		return str.replace(new RegExp('-([a-z])', 'g'), (match,capture)=>capture.toUpperCase())
 	}
 

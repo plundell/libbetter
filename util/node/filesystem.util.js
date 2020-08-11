@@ -1635,7 +1635,8 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
     		log.throw("Cannot store smarty when prop '_unlink' is already defined")
     	if(smarty.has('_read'))
     		log.throw("Cannot store smarty when prop '_read' is already defined")
-    	smarty._private.reservedKeys.push('_unlink','_read');
+    	smarty._private.reservedKeys._unlink=true
+    	smarty._private.reservedKeys._read=true;
 
     	//Create the storage
         smarty._private.storage=new StoredItem(

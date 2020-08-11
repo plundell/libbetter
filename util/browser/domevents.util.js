@@ -17,7 +17,7 @@ module.exports=function export_mobX({cX,_log}){
 	var _exports={
 		markInputting
 		,throttleInput
-		,interceptChildEvents
+		,redispatchChildEvents
 		,redispatchEvent
 	}
 		
@@ -66,7 +66,7 @@ module.exports=function export_mobX({cX,_log}){
 				}
 				//If it's already expired then do nothing...
 			}
-			,options={capture:true, passive:true};
+			,options={capture:true, passive:true}; //capture:true so we are the first to run and can effectively intercept the event
 		;
 		
 		//Now add the listener...
@@ -106,25 +106,6 @@ module.exports=function export_mobX({cX,_log}){
 	}
 
 
-
-	/*
-	* Intercept events coming from child elements and dispatch them from a given parent element instead
-	*
-	* @param <HTMLElement> elem 	The parent element to intercept at and re-dispatch from
-	* @params string ...events 		Names of the events to intercept
-	*
-	* @return <HTMLElement> $elem
-	*/
-	function interceptChildEvents(elem,...events){
-		events.forEach(evt=>{
-			elem.addEventListener(evt,redispatchEvent,{capture:true})
-		})
-		return elem;
-	}
-
-
-
-
 	/*
 	* Handler function that will re-dispatch an event from the element its set on (ie. whatever 'this' is set to)
 	* @param <event> event
@@ -137,6 +118,26 @@ module.exports=function export_mobX({cX,_log}){
 			 //^a timeout is required, else "DOMException: The event is already being dispatched.""
 		}
 	}
+
+	/*
+	* Intercept events on a $target coming from its child elements and dispatch them from the $target itself, ie. changing 'this'
+	* in the event
+	*
+	* @param <HTMLElement> target 	The element to intercept at and re-dispatch from
+	* @params string ...events 		Names of the events to intercept
+	*
+	* @return <HTMLElement> $target
+	*/
+	function redispatchChildEvents(target,...events){
+		events.forEach(evt=>{
+			target.addEventListener(evt,redispatchEvent,{capture:true})
+		})
+		return target;
+	}
+
+
+
+
 
 	return _exports;
 }

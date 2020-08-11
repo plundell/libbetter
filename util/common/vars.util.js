@@ -245,9 +245,12 @@ module.exports=function export_vX({varType,logVar,_log}){
 	/*
 	* @param object obj 	Any object
 	* @param object types 	Keys are same as obj, values are expected types (string or array or strings)
+	* @opt bool|string falseOrCaller
 	*
 	* @throws <ble TypeError> 	If args passed to this func is wrong (incl. if arg#1 isn't an object), @see checkType
 	* @throws <ble EINVAL> 		If any of the props are the wrong type 	
+	* @throws <ble EMISSING> 	If any of the props are missing
+	*
 	* @return object|false
 	*/
 	function checkProps(obj,types,falseOrCaller){

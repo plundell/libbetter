@@ -30,6 +30,7 @@ module.exports=function export_elemX({cX,_log,evtX}){
 
 		,createElement
 		,createInput
+		,addSubmitChangesToInput
 		,addInputOptions
 		,addInputOption
 		,'setValueOnElem':setValueOnElem
@@ -148,7 +149,7 @@ module.exports=function export_elemX({cX,_log,evtX}){
 	*
 	* @throw <ble TypeError> 		If $ was bad type 
 	* @throw <ble SyntaxError> 		If poorly formated htmlstring
-	* @throw <ble> 					If no element was found
+	* @throw <ble ENOTFOUND> 		If no element was found (either empty nodelist or dom didn't contain)
 	*
 	* @return <HTMLElement>			The live element. By default an error is thrown on fail, but @see $returnNull
 	*/
@@ -181,7 +182,8 @@ module.exports=function export_elemX({cX,_log,evtX}){
 						return node;
 
 					//then try it as a query selector
-					nodes=document.querySelectorAll(x), l=nodes.length;
+					nodes=document.querySelectorAll(x);
+					let l=nodes.length;
 					if(l){
 						if(l>1){
 							_log.note(`Multiple elements matched css selector '${x}', only returning first:`,nodes);
@@ -191,10 +193,11 @@ module.exports=function export_elemX({cX,_log,evtX}){
 					if(returnNull)
 						return null;
 					else
-						_log.makeError("Found no element matching (id or css selector): "+x).throw();
+						_log.throwCode('ENOTFOUND',"Found no element matching (id or css selector): "+x);
 				}
 			case "nodelist":
-				nodes=Array.from(x), l=list.length;
+				nodes=Array.from(x);
+				let l=nodes.length;
 				if(l){
 					if(l>1){
 						_log.note(`Nodelist with ${l} nodes passed in, only returning first:`,nodes);
@@ -204,7 +207,7 @@ module.exports=function export_elemX({cX,_log,evtX}){
 				if(returnNull)
 					return null;
 				else
-					_log.makeError("Empty nodelist passed in").throw();
+					_log.throwCode('ENOTFOUND',"Empty nodelist passed in");
 			case 'object':
 				//In case it's a MouseEvent from a click
 				if(x.target && cX.varType(x.target)=='node')
@@ -498,7 +501,7 @@ module.exports=function export_elemX({cX,_log,evtX}){
 	function createElement(tagName){
 		cX.checkType('string',tagName);
 		tagName=tagName.toLowerCase();
-		if(inputTypes.includes(tagName))
+		if(createElement.inputTypes.includes(tagName))
 			return createInput('',tagName);
 		else
 			return document.createElement(tagName);
@@ -532,22 +535,26 @@ module.exports=function export_elemX({cX,_log,evtX}){
 		items=items||[]
 		cX.checkTypes(['string','string','array'],[name,type,items])
 		
+		//alias for dropdown...
+		type=(type=='select'?'dropdown':type);
+
 		var input;
-		switch(type){
-			case 'radioset':
-				input=createInput.radioset(items); break;
-			case 'checklist':
-				input=createInput.checklist(items); break;
-			case 'select':
-			case 'dropdown':
-				input=createInput.dropdown(items); break;
-			case 'toggle':
-				input=createInput.toggle(); break;
-			case 'textarea':
-				input=document.createElement('textarea'); break;
-			default:
-				input=document.createElement('input');
-				input.type=type;
+		if(createInput.hasOwnProperty(type)){
+			input=createInput[type](items); break;
+		}else{
+			switch(type){
+				case 'textarea':
+					input=document.createElement('textarea'); break;
+				case 'button':
+				case 'submit':
+				case 'reset':
+					input=document.createElement('button'); 
+					input.type=type;
+					break;
+				default:
+					input=document.createElement('input');
+					input.type=type;
+			}
 		}
 
 		if(name) //allow for name skipping if an empty string is passed in
@@ -577,19 +584,27 @@ module.exports=function export_elemX({cX,_log,evtX}){
 	createInput.radioset=function createRadioSet(items){
 		let fieldset=createFieldset('radioset');
 
-		//the checklist gets and sets an array
+		
 		Object.defineProperty(fieldset,'value',{
 			enumerable:true
 			,get:()=>{
-				return Array.from(fieldset.querySelectorAll('input[type=radio]:checked')).map(elem=>elem.value)
+				var radio=fieldset.querySelector('input:checked');
+				return radio==null ? undefined : radio.value;
 			}
-			,set:(arr)=>{
-				if(cX.checkType(['primitive','array'],arr)!='array'){
-					arr=[arr];
+			,set:(val)=>{
+				//Get the radio with the corresponding value...
+				var radio=fieldset.querySelector(`input[value=${val}]`);
+				if(radio){
+					//...and select it if it exists (which will unselect all others)
+					radio.checked=true;
+					return val;
+				}else{
+					//If the option doesn't exist then we unselect all
+					radio=radioset.querySelector('input:checked');
+					if(radio)
+						radio.checked=false;
+					return undefined;
 				}
-				//Set the state of each checkbox according to the array (ie. unselect all not mentioned)
-				fieldset.querySelectorAll('input[type=radio]').forEach(elem=>elem.checked=arr.includes(elem.value));
-				return;
 			}
 		})
 
@@ -598,9 +613,6 @@ module.exports=function export_elemX({cX,_log,evtX}){
 
 		addInputOptions(fieldset,items);
 
-		//Only the fieldset should dispatch events, not the child <radio>s
-		evtX.interceptChildEvents(fieldset,['input','change']);
-
 		return fieldset;
 	}
 
@@ -608,11 +620,10 @@ module.exports=function export_elemX({cX,_log,evtX}){
 	createInput.checklist=function createChecklist(items){
 		let fieldset=createFieldset('checklist')
 
+		//the checklist gets and sets an array
 		Object.defineProperty(fieldset,'value',{
 			enumerable:true
-			,get:()=>{
-				return Array.from(fieldset.querySelectorAll('input[type=checkbox]:checked')).map(elem=>elem.value)
-			}
+			,get:()=>Array.from(fieldset.querySelectorAll('input[type=checkbox]:checked')).map(elem=>elem.value)
 			,set:(arr)=>{
 				if(cX.checkType(['primitive','array'],arr)!='array'){
 					arr=[arr];
@@ -624,9 +635,6 @@ module.exports=function export_elemX({cX,_log,evtX}){
 		})
 
 		addInputOptions(fieldset,'checkbox',items);
-
-		//Only the fieldset should dispatch events, not the child <checkbox>es
-		evtX.interceptChildEvents(fieldset,['input','change']);
 
 		return fieldset;
 	}
@@ -655,9 +663,8 @@ module.exports=function export_elemX({cX,_log,evtX}){
 	createInput.toggle=function createToggle(){
 		//This is another special case where we'll need >1 elem so we wrap it in a fieldset. This also gives
 		//us the oppertunity to link the .value to the underlying .checked
-		let fieldset=createFieldset('toggle')
+		let fieldset=createFieldset('toggle',createElement('checkbox'))
 
-		fieldset.classList.add('toggle-wrapper');
 
 		//Allow accessing the checked state of the internal checkbox with a .value prop on the wrapper
 		Object.defineProperty(fieldset,'value',{
@@ -666,11 +673,12 @@ module.exports=function export_elemX({cX,_log,evtX}){
 			,set:(check)=>{fieldset.querySelector('input[type=checkbox]').checked=check?true:false}
 		})
 
-		//The actual input will be a checkbox...
-		let input=createElement('checkbox');
-		fieldset.appendChild(input);
+		//In order for something to differentiate a 'toggle' from a regular checbox we add a method
+		fieldset.toggle=()=>fieldset.value=!fieldset.value
 
-		//...but we'll show a nice slider created by a span+css
+
+		//In order to show a nice slider instead of the default checkbox...
+		fieldset.classList.add('toggle-wrapper');
 		let span=document.createElement('span');
 		span.classList.add('toggle-slider');
 		span.setAttribute('onclick','javascript:event.stopImmediatePropagation();')
@@ -697,10 +705,16 @@ module.exports=function export_elemX({cX,_log,evtX}){
 		//Create getter/setter on the fieldset
 		Object.defineProperty(fieldset,'value',{
 			enumerable:true
-			,get:()=>cX.makeDate(date.value,time.value)
+			,get:()=>cX.makeDate(date.value,time.value) //<Date> object
 			,set:(datetime)=>{
-				date.value=cX.formatDate(datetime);
-				time.value=cX.formatTime(datetime);
+				let date=cX.formatDate(datetime),time=cX.formatTime(datetime),str=(`${date} ${time}`).trim();
+				//Set the values of the child elements
+				date.value=date;
+				time.value=time;
+
+				//Set the attribute of the fieldset, that way we have easy access to both a <Date> obj via the prop, and
+				//a string via this attribute
+				fieldset.setAttribute('value',str);
 			}
 		})
 
@@ -708,20 +722,88 @@ module.exports=function export_elemX({cX,_log,evtX}){
 	}
 
 
+	/*
+	* Create a <fieldset> with it's .type attribute set. Optionally appending a $child to it and binding the value
+	* to that child using setter/getter
+	*
+	* @param string type 
+	* @opt mixed child  	@see getLiveElement
+	*
+	* @return <HTMLElement> 	A <fieldset>
+	*/
+	function createFieldset(type,child){
+		var fieldset=document.createElement('fieldset');
 
-	function createFieldset(type){
-		let fieldset=document.createElement('fieldset');
 		fieldset.setAttribute('bu-input',''); //flag so we can identify it easily
+		
+		//Set the type both as prop and attribute so copying the fieldset won't loose it
 		Object.defineProperty(fieldset,'type',{enumerable:true, configurable:true
 			,get:()=>fieldset.getAttribute('type')
 			,set:(val)=>fieldset.setAttribute('type',val)
 		})
 		fieldset.type=type; //does not do anything for form-api, but is used by getValueFromElem() and setValueOnElem()
+
+
+		//Only the fieldset should dispatch events, not the child inputs, so intercept when they bubble past and 
+		//change the event.target
+		evtX.redispatchChildEvents(fieldset,['input','change']);
+
+		//If a child was passed in, pop it inside and link it's value
+		if(child){
+			child=getLiveElement(child);
+			Object.defineProperty(fieldset,'value',{
+				enumerable:true
+				,get:()=>child.value
+				,set:(val)=>child.value=val
+			})
+			fieldset.appendChild(child);
+		}
+
 		return fieldset;
 	}
 
 
 
+	/*
+	* Wrap an element in a div together with a submit button. Changes to the elem will be intercepted and 
+	* the last one emitted when the button is pushed
+	*
+	* @param <HTMLElement> elem 	Any element where 'input' events bubble past
+	* @opt boolean extendValue 		Default false. If true the wrapper will be a <fieldset> and the .value from
+	*								 the input will be extended using getters/setters
+	*
+	* @param <HTMLElement> 			A wrapper containing $elem and <input type='button'>Submit</input>
+	*/
+	function addSubmitChangesToInput(elem,extendValue=false){
+
+		//Add the elem to a wrapper, what kind depends on if we're extending or not
+		if(extendValue){
+			var wrapper=createFieldset(elem.getAttribute('type')||elem.type,elem);
+		}else{
+			wrapper=document.createElement('div')
+			wrapper.appendChild(elem);
+		}
+
+		//Then intercept changes on the elem, storing the last one. We don't 'capture', so whenever 
+		//the event bubbles up to us is when we intercept.
+		var lastEvent;
+		elem.addEventListener('input',event=>{
+			lastEvent=event; //store so we can emit it vv
+			event.stopImmediatePropagation();
+		});
+
+		//Now create a submit button and add it to the wrapper...
+		var button=createElement('button');
+		button.innerHTML='Submit';
+		
+		//...and when it is clicked we emit the lastEvent from the original elem
+		button.addEventListener('click',event=>{
+			event.stopImmediatePropagation();
+			elem.dispatchEvent(evt)
+		},{capture:true}); //make sure we run before anyone else
+
+		return wrapper;
+	}
 
 
 	/*
@@ -738,7 +820,7 @@ module.exports=function export_elemX({cX,_log,evtX}){
 		input.addOption=addInputOption.bind(input);
 
 		if(cX.varType(items)!='array' || !items.length){
-			_log.note(`Creating an empty ${input.type}, ie. without actual <input type='${getInputOptionType(input)}'>s. Please add items later...`
+			_log.note(`Creating an empty '${input.type}' input, ie. without actual <input type='${getInputOptionType(input)}'>s. Please add items later...`
 				,input);
 		}else{
 			items.forEach(input.addOption)
@@ -1399,8 +1481,9 @@ module.exports=function export_elemX({cX,_log,evtX}){
 	*
 	* @param string buttonText  	The caption on the button
 	* @opt string eventName 		The name of the event to emit when the button is clicked
-	* @opt object|primitive details Any additional details to add to the custom event. NOTE: objects will be set
-	*								 on the button's dataset, ie. they will not remain live
+	* @opt object|primitive details Any additional details to add to the custom event. 
+	*									NOTE 1: objects will be set on the button's dataset, ie. they will not remain live
+	*								 	NOTE 2: these will be available via event.details
 	*
 	* @return <HTMLElement> 	A <button> element
 	*/

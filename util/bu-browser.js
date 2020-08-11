@@ -37,7 +37,7 @@ module.exports=function exportBetterUtilBrowser(dep){
 
 
 
-
+    const docX=require('./browser/document.util.js')({cX,_log});
 
 	const restX=require('./browser/rest.util.js')({cX,_log});
     const evtX=require('./browser/domevents.util.js')({cX,_log});
@@ -49,7 +49,7 @@ module.exports=function exportBetterUtilBrowser(dep){
 
 
     //Combine everything onto the same object
-    var bu=Object.assign(cX,elemX,styleX,mobX,restX,evtX);
+    var bu=Object.assign(cX,elemX,styleX,mobX,restX,evtX,docX);
 
     //Apply any styles specified in the various modules^
     delete bu._styles;

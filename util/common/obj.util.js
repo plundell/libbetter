@@ -37,6 +37,7 @@ module.exports=function export_oX({_log,vX}){
 		,'nestedObjToArr':nestedObjToArr
 		,'forEachNestedPrimitive':forEachNestedPrimitive
 		,'objToQueryStr':objToQueryStr
+		,fillOut
 	};
 
 
@@ -360,6 +361,7 @@ module.exports=function export_oX({_log,vX}){
 	*			'hasOwnProperty'                  - Include requested keys if they're set on $obj
 	*			'hasOwnDefinedProperty'           - Include requested keys if they're set on $obj AND are defined
 	*			'hasOwnNotNullProperty'           - Like ^ but must also !=null
+	*			'isUndefined'					  - Opposite of 'isDefined', only include those keys NOT present in filter
 	*
 	* 
 	* @throws TypeError
@@ -412,6 +414,13 @@ module.exports=function export_oX({_log,vX}){
 			case 'isDefined':
 				keys.forEach(key=>{
 					if(obj[key]!=undefined){ //this can come from anywhere on the prototype chain
+						rObj[key]=obj[key]
+					}
+				})
+				break;
+			case 'isUndefined':
+				Object.keys(obj).forEach(key=>{
+					if(!keys.includes(key)){
 						rObj[key]=obj[key]
 					}
 				})
@@ -863,6 +872,40 @@ module.exports=function export_oX({_log,vX}){
 		}
 		return parts.join('&');
 	}
+
+
+
+
+	/*
+	* Fill out an object with keys/values from another, not overwriting anything
+	*
+	* @param object 		target 		The object we'll be making changes to. NOTE: The passed in object will be altered
+	* @param objects|arrays ...fillers  One or more objects containing data to fill out $target with
+	*
+	* @return object 		$target
+	*/
+	function fillOut(target, ...fillers){
+		//Just like with Object.assign() we allow as many fillers as you like
+		vX.checkType('object',target);
+
+		//Grab copies of all fillers that don't include the keys of the target
+		var keysToExclude=Object.keys(target);
+		for(let i=0;i<fillers.length;i++){
+			fillers[i]=subobj(fillers[i],keysToExclude,'isUndefined')
+		}
+
+		//Now assign...
+		return Object.assign(target,...fillers);
+	}
+
+
+
+
+
+
+
+
+
 
 
 
