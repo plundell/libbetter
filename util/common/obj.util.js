@@ -680,9 +680,8 @@ module.exports=function export_oX({_log,vX}){
 			Object.entries(obj).forEach(([key,child])=>{
 				if(child.hasOwnProperty(prop))
 					ret[key]=child[prop]
-				else if(onMissing!=undefined)
+				else if(arguments.length==3) //this allows anything to be passed, even undefined... but if the argument is omitted, missing keys are too
 					ret[key]=onMissing
-				//if onMissing is not set, the key is not included
 			})
 		}else{
 			//Get nested prop
