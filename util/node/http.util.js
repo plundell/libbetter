@@ -52,11 +52,7 @@ module.exports=function export_httpX({BetterLog,cX,fsX,netX,pump,...dep}){
 	*/
 	const querystring = dep.querystring||require('querystring');
 
-	/**
-	* @var object   dns    The native dns class, made available on the exported object
-	* @access public
-	*/
-	const dns = dep.dns||require("dns");
+
 	
 	/**
 	* @var object cp 	Native child_process. Used as backup request with wget
@@ -167,11 +163,10 @@ module.exports=function export_httpX({BetterLog,cX,fsX,netX,pump,...dep}){
 	* @opt string mode 		The following options are available
 	*							'full'   - a <URL> object, @see native 'url.parse'
 	*							'slim'   - an object with props protocol,host,port,path 
-	*							'string' - a string url like: https://www.example.com:80/path/to/file.ext
 	*
 	* @throw EFAULT 		If we couldn't at least get a host
 	*
-	* @return string|object @see $mode				
+	* @return object 		@see $mode				
 	*/
 	function makeUrlObj(url,mode='full'){
 		if(cX.checkType(['string','object'],url)=='string'){
@@ -198,6 +193,19 @@ module.exports=function export_httpX({BetterLog,cX,fsX,netX,pump,...dep}){
 		
 		return obj;
 
+	}
+
+	/*
+	* Parse a url, but throw if it doesn't at least contain a valid host
+	*
+	* @param mixed url 		@see native 'url.parse'
+	*
+	* @throw EFAULT 		If we couldn't at least get a host
+	*
+	* @return string		eg: https://www.example.com:80/path/to/file.ext
+	*/
+	function toHref(url){
+		return makeUrlObj(url).href
 	}
 
 
@@ -251,13 +259,7 @@ module.exports=function export_httpX({BetterLog,cX,fsX,netX,pump,...dep}){
 	*/
 	function resolveHostname(hostname,options){
 		var url=makeUrlObj(hostname); //TypeError
-		var {promise,callback}=cX.exposedPromise()
-		dns.lookup(url.hostname,options,callback);
-		return promise.catch(function resolveHostname_failed(err){
-			return log.makeError(err).reject(); //ENOTFOUND
-			//NOTE: it uses same err code for everything it seems, even filesystem stuff like not finding a file descriptor
-		});
-
+		return netX.dnsLookup(url.hostname,options);
 	}
 
 
@@ -267,7 +269,7 @@ module.exports=function export_httpX({BetterLog,cX,fsX,netX,pump,...dep}){
 	*
 	* @param string|object url 	@see makeUrlObj()
 	*
-	* @return Promise(object,err)
+	* @return Promise(object,err) 	@see makeUrlObj + .headers containing the resource headers
 	* @reject TypeError  
 	* @reject EFAULT     Could not parse url to get a host
 	* @reject ENOTFOUND  The url didn't resolve to an ip
@@ -277,44 +279,34 @@ module.exports=function export_httpX({BetterLog,cX,fsX,netX,pump,...dep}){
 	* @public
 	*/
 	async function webResourceExists(url){
-		var checks={
-			validUrl:false
-			,connected:false
-			,resolvesToIp:false
-			,reachable:false
-			,pageExists:false
-		};
+
 		try{
 			var urlObj=makeUrlObj(url) //TypeError, EFAULT
-				href=urlObj.href
+				,href=urlObj.href
+				,port=urlObj.port||defaultPorts[urlObj.protocol]||80
 			;
-			checks.validUrl=true;
-			log.trace(`${href} - valid url`)
 
-			if(!(await netX.ping('8.8.8.8')))
-				log.throwCode('ENETDOWN','Cannot reach internet (cannot ping Google DNS @ 8.8.8.8)')
-			checks.connected=true;
-			log.trace(`${href} - connected to internet`);
+			try{
+				var ble=await internetResourceCheck(urlObj.hostname,port);
+			}catch(ble){
+				//Prepend the handling with the what we did ^
+				ble.handling.unshift(ble.addHandling(`Valid url: ${href}`).handling.pop());
+				ble.throw();
+			}
 
-			let ip=await resolveHostname(urlObj); //ENOTFOUND
-			checks.resolvesToIp=true;
-			log.trace(`${href} - resolved to ${ip}`);
-
-			let port=urlObj.port||defaultPorts[urlObj.protocol]||80;
-			checks.reachable=await netX.checkPortOpen(ip,port);
-			if(!checks.serverRunning)
-				log.throwCode('ESRCH',`Could not reach a server running at ${ip}:${port}`); //ESRCH
-			else
-				log.trace(`${href} - reached server at port ${port}`)
-
-			await head; //Could throw any HTML error
-			checks.pageExists=true;
-			log.trace(`${href} - page seems to exist and returns headers`);
-
-			return checks;
+			try{
+				urlObj.headers=await head(href); //Could throw any HTML error
+				ble.addHandling("Got HTML headers");
+			}catch(err){
+				ble.addHandling("Failed to get HTML headers.",err).throw(err.code);
+			}
 		}catch(err){
-			return log.makeError(err).addExtra(checks).reject();
+			log.reject("Web resouce NOT available:",err);
 		}
+
+		ble.msg="Web resource is available";
+		ble.exec();
+		return urlObj;
 	}
 
 	/*
@@ -420,7 +412,7 @@ module.exports=function export_httpX({BetterLog,cX,fsX,netX,pump,...dep}){
 
 			//If no timeout was set, at least warn that the fetch is slow
 			if(!timeout)
-				cX.addTimeoutCallback(promise,10000,()=>log.warn("The request has been running for >10 sec...",x.request))
+				cX.runOnUnsettledTimeout(promise,10000,()=>log.warn("The request has been running for >10 sec...",x.request))
 
 			//...but before waiting we write any payload and end the request
 			request.end(cX.tryJsonStringify(payload)); //will send an empty string if no or bad payload was passed
@@ -559,17 +551,18 @@ module.exports=function export_httpX({BetterLog,cX,fsX,netX,pump,...dep}){
 	* @param <http.IncomingMessage> message
 	* @param string data 					The string returned by fetchIncomingMessage()
 	*
-	* @throw <ble SyntaxError> 	If the data could not be parsed as expected
+	* @throws @see cX.jsonParse
+	*
 	* @return any 				The $data parsed into an object or array
 	*/
 	function parseMessageData(message, data){
 		data=cX.trim(data);
 		switch(mimeLookup[message.headers['content-type']]){
 			case 'json':
-				return cX.tryJsonParse(data,true);
+				return cX.jsonParse(data);
 			case 'urlencoded':
     			//return cX.queryStrToObj(data);
-    			return querystring.parse(data)
+    			return querystring.parse(data); //throws??
 			default:
 				log.debug("Not parsing content-type: "+message.headers['content-type']);
 				return data;
@@ -640,12 +633,12 @@ module.exports=function export_httpX({BetterLog,cX,fsX,netX,pump,...dep}){
 		,'url':u
 		,'zlib':zlib
 		,'querystring':querystring
-		,dns
 		,'codes':codes
 		,'mime':mime
 		,'mimeLookup':mimeLookup
 		,webResourceExists
 		,makeUrlObj
+		,toHref
 		,'get':get
 		,head
 		,'request':request

@@ -38,9 +38,10 @@ module.exports=function exportBetterUtilCommon(dep){
 	const aX=require('./common/arr.util.js')({vX,_log});
 	const fX=require('./common/functions.util.js')({vX,_log,aX});
 	const oX=require('./common/obj.util.js')({vX,_log});
-	const pX=require('./common/promise.util.js')({vX,_log,aX});
+	const nX=require('./common/nested.util.js')({vX,oX,_log});
+	const pX=require('./common/promise.util.js')({vX,_log,aX,fX});
 	const stX=require('./common/string.util.js')({vX,_log});
-	const mX=require('./common/misc.util.js')({vX,_log, stX});
+	const mX=require('./common/misc.util.js')({vX,_log,aX});
 	const tX=require('./common/time.util.js')({vX,_log});
 	const netmask=require('./common/netmask.polyfill.js');
 	const validate=require('./common/validate.util.js')({netmask});
@@ -53,8 +54,10 @@ module.exports=function exportBetterUtilCommon(dep){
 			,netmask
 			,Timer
 		}
-		,vX,aX,fX,oX,pX,stX,mX,tX
+		,vX,aX,fX,oX,nX,pX,stX,mX,tX
 	)
+
+	cX.md5=require('./common/md5.polyfil.js');
 
 	return cX;
 }

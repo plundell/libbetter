@@ -7,27 +7,22 @@
 */
 'use strict'; 
 
-module.exports=function export_pX({_log,vX,aX}){
+module.exports=function export_pX({_log,vX,aX,fX}){
 
 
 	//Export
 	var _exports={
 		'sleep':sleep
 		,'toPromise':toPromise
-		,'applyPromise':applyPromise
 		,'createPromiseFunc':createPromiseFunc
-		,promisify //alias for ^
-		,'awaitAllPromises':awaitAllPromises
+		,'promisify':createPromiseFunc //alias
+		,promisifyCallback
 		,'firstResolved':firstResolved
-		,'InspectablePromise':InspectablePromise
-		,'promiseTimeout':promiseTimeout
-		,'rejectTimeout':rejectTimeout
-		,addTimeoutCallback
+		,rejectOnUnsettledTimeout
+		,runOnUnsettledTimeout
 		,'exposedPromise':exposedPromise
 		,'groupPromises':groupPromises
 		,'thenCallback':thenCallback
-		,'promiseAlways':promiseAlways
-		,promisifyCallback
 	}
 
 
@@ -59,48 +54,25 @@ module.exports=function export_pX({_log,vX,aX}){
 	/*
 	* Turn smth into a promise. 
 	*
-	* @param function|<Promise>|any x 	NOTE: if function, it will be called immediately
+	* @param function|<Promise>|any x 	NOTE: if function it gets called immediately
 	*
 	* @return <Promise> 	Depending on what's passed in, this will return:
-	*		<Promise> --> same promsie
+	*		<Promise> --> same promise
 	*		function  --> executes function inside a promise, then returns the promise
 	* 		any       --> same variable, wrapped in resolved promise
 	*/
 	function toPromise(x){
-		if(x instanceof Promise)
+		if(x instanceof Promise){
 			return x
-		else if(typeof x =='function')
-			return applyPromise.apply(this,arguments);
-		else
+		}else if(typeof x =='function'){
+			return createPromiseFunc(x).call(this);
+		}else{
 			return Promise.resolve(x);
-	}
-
-
-	/*
-	* Call a function and return a promise that resolves/rejects with result
-	*/
-	function applyPromise(func,args,callAs){
-		try{
-			vX.checkType('function',func);
-			
-			if(vX.varType(args)!='array')
-				args=[args];
-
-			if(vX.varType(callAs)!='object')
-				callAs=this;
-
-			return new Promise(async function _applyPromise(resolve,reject){
-				try{
-					var data=await func.apply(callAs,args);
-					resolve(data);
-				}catch(err){
-					reject(err);
-				}
-			});
-		}catch(err){
-			return _log.reject('Failed to wrap function in promise.',err);
 		}
 	}
+
+
+	
 
 	/*
 	* Wrap a function in another function that ensures the returned value
@@ -109,178 +81,41 @@ module.exports=function export_pX({_log,vX,aX}){
 	* NOTE: this does NOT call the function, only wraps it for future calls
 	*
 	* @param function func
-	* @opt object callAs
 	*
 	* @return function
 	*/
-	function createPromiseFunc(func,callAs){
+	function createPromiseFunc(func){
 		vX.checkType('function',func);
-		return (function(...args){
+		return fX.renameFunction(func.name||'promisifiedFunc',function(){
 			try{
-				Promise.resolve(func.apply(callAs||this,args))
+				return Promise.resolve(func.apply(this,arguments))
 			}catch(err){
 				return Promise.reject(err);
 			}
 		})
 	}
-	var promisify=createPromiseFunc
-
-
-
 
 
 
 	/*
-	* Wait for all promises to finish (not like Promise.all that rejects on the first reject)
+	* Call an async function which is expecting a callback as last argument, returning a 
+	* promise instead
 	*
-	* @param array promises 	An array of Promise objects
-	* @param array options 		Optional. Array of string option flags. Available are:
-	*		'flatten' 		- Un-nest recursive/nested calls to this function
-	*		'alwaysResolve' - Even if some @promises reject, resolve with retObj (object)
-	*		'onlyResolved' 	- Even if some @promises reject, resolve with retObj.resolved (array)
-	*		'logRejected' 	- Log all the rejected promises
-	* 		'timeout' 		- This rejects early if timeout reached. Next item in array must be number of ms. 
-	*							NOTE: promises will keep executing after timeout fires
-	*		'array' 		- Return array of arrays (@see retObj.all)
-	*		
+	* @param function func   A function that expects the last arg to be a (err,data) callback function
+	* @opt any ...args
 	*
-	* @return Promise(array|object) 		@see @options. Default: If any @promises are rejected this rejects with an object 
-	*										with props 'resolved', 'rejected' (arrays of resulting values with indexes retained 
-	*										from @promises) and 'all' (array or arrays [bool, value]). If all @promises resolve
-	*										this resolve with an array of those values.
+	* @return Promise(any,err);
 	*/
-	function awaitAllPromises(promises,options=[],...opts){
-
-		_log.makeEntry('note',"TODO: replace call to awaitAllPromises() with groupPromises()")
-			.changeWhere(1).highlight('blue');
-
-		vX.checkType('array',promises);
-		if(!Array.isArray(options)){
-			opts.unshift(options);
-			options=opts;
-		}
-
-
-		var anyErrors=false;
-
-		//Prepare the return object outside main promise so we can reject with it if option timeout triggers
-		var retObj={
-			resolved:[]
-			,rejected:[]
-			,all:[] //array of arrays, [result(true/false), value]
-			,remaining:promises.length
-			,promises:promises.map(toPromise) //make sure any functions get called and wrapped in promises
-			,err:null
-			,awaitAllPromises:null
-		};
-
-		//Loop through all promises and wrap them so they all...
-		var wrappedPromises=retObj.promises.map(p=>
-			p.then(
-				data=>[true, data]
-				,err=>{
-					anyErrors=true;
-					return [false, err];
-				}
-			) //...resolve with an array [result, value]
-			.then(arr=>{retObj.remaining-=1;return arr}) //...decrease 'remaining' counter (good if timeout used)
-		);
-
-		//...^^ array can now be passed to Promise.all without it finishing on the first reject
-		retObj.awaitAllPromises=Promise.all(wrappedPromises).then(retArr=>{	//because we handled everything ^^ => nothing here will fail
-			try{
-
-				//Before we do anything else, if we want to flatten (usefull if this func is called multiple times)...
-				if(options.indexOf('flatten')>-1){
-				 	//...check if any of the promises produced a value containing the special flag we set below for 
-				 	//this very purpose. NOTE: this resets the indexes so they mean nothing...
-					var tmp=[];
-					retArr.forEach(([success,val])=>{
-						switch(val.__awaitAllPromises__){
-							case 'mixed_array':
-								tmp=tmp.concat(val);
-							case 'object':
-								tmp=tmp.concat(val.rejected.map(v=>[false,v]));
-								val=val.resolved; // same handling vv, don't break;
-							case 'resolved_array':
-								tmp=tmp.concat(val.map(v=>[true,v]));
-								break;
-							case undefined:
-							default:
-								tmp.push([success,val]); 
-						}
-					})
-					retArr=tmp;
-				}
-
-				//Set on return obj
-				retObj.all=retArr;
-				
-
-				//Split resolved/rejected and set on return obj
-				retArr.forEach(([success,val],i)=>{
-					if(success==true)
-						retObj.resolved[i]=val; 	//NOTE: since keys are not consecutive, console.log will look eg.  
-					else			   				// 			[<4 empty items>,'foo',<2 empty items>,'bar']
-						retObj.rejected[i]=val;
-				});
-
-				//If any ^^ rejected, set an error that says so 
-				if(retObj.rejected.length && !retObj.err) //don't overwrite timeout err set vv
-					retObj.err=(retObj.rejected.length+' promises rejected, those with index: '+Object.keys(retObj.rejected).join(','));
-
-
-				//To enable the functionality of 'flatten' option, add a flag on both object and arrays ^^
-				Object.defineProperty(retObj.resolved,'__awaitAllPromises__',{value:'resolved_array'});
-				Object.defineProperty(retObj,'__awaitAllPromises__',{value:'object'});
-				Object.defineProperty(retArr,'__awaitAllPromises__',{value:'mixed_array'});
-				// retObj.rejected.prototype.__awaitAllPromises__=true; //not needed because it's never returned...
-
-
-				//If we want to log all rejected
-				if(options.indexOf('logRejected')>-1){
-					var l=retObj.promises.length;
-					retObj.rejected.forEach((err,i)=>_log.makeError(err)
-						.addHandling(`This was promise ${i+1} of ${l} passed to awaitAllPromises().`).exec());
-				}
-
-				if(options.indexOf('array')>-1)
-					return anyErrors ? Promise.reject(retArr) : Promise.resolve(retArr);
-
-				else if(options.includes('alwaysResolve'))
-					return Promise.resolve(retObj);
-
-				else if(options.indexOf('onlyResolved')>-1 || !anyErrors)
-					//Grab only the resolved ones as array(retain index)(may be empty array), and resolve
-					return Promise.resolve(retObj.resolved);
-
-				else
-					return Promise.reject(retObj)
-
-			}catch(err){
-				_log.error("BUGBUG awaitAllPromises():",err);
-				return Promise.reject(retObj);
-			}
-		})
-
-		var i=options.indexOf('timeout')
-		var timeout=options[i+1];
-		if(i>-1 && typeof timeout=='number'){
-			return Promise.race([
-				retObj.awaitAllPromises
-				,sleep(timeout).then(()=>{
-					retObj.err='timeout'
-				//TODO 2019-09-13: This should instead prompt ^^ to finish in the same way it would have otherwise...
-				//					so at least we get the data we have...
-					return Promise.reject(retObj);
-				})
-			]);
-
-		}else
-			return retObj.awaitAllPromises;
-
-		
+	function promisifyCallback(func,...args){
+		var {callback,promise}=exposedPromise();
+		args.push(callback); //add the callback as last arg
+		func.apply(this,args)
+		return promise;
 	}
+
+
+
+
 
 
 
@@ -327,218 +162,68 @@ module.exports=function export_pX({_log,vX,aX}){
 
 
 
-	/*
-	* @constructor
-	*/
-	function InspectablePromise(promise){
-		this.status='pending';
-		this.result=undefined;
-
-		var {promsie:promise2,resolve,reject}=exposedPromise();
-
-		var _private={
-			resolvedHandler:null
-			,rejectHandler:null
-		}
-
-
-		//When the actual promise resolves/rejects, just store the result
-		promise.then(
-				data=>{
-					if(this.status=='pending'){
-						this.status='resolved';
-						this.result=data;
-						if(typeof _private.resolveHandler=='function')
-							resolve(_private.resolveHandler(data));
-					}
-				}
-				,err=>{
-					if(this.status=='pending'){
-						this.status='rejected';
-						this.result=err;
-						if(typeof _private.rejectHandler=='function')
-							resolve(_private.rejectHandler(err));
-					}
-				}
-			)
-		;
-
-		//Bring these methods to surface
-		this.then=(resolveHandler,rejectHandler)=>{
-
-			switch(this.status){
-				case 'pending':
-					_private.resolveHandler=resolveHandler;
-					_private.rejectHandler=rejectHandler;
-					break;
-				case 'resolved':
-					if(typeof resolveHandler=='function')
-						resolve(resolveHandler(this.result));
-				case 'timeout':
-				case 'rejected':
-					if(typeof rejectHandler=='function')
-						return resolve(rejectHandler(this.result))
-					else 
-						return reject(this.result);
-
-			}
-
-			return promise2;
-		}
-
-		this.catch=(rejectHandler)=>{
-			if(typeof rejectHandler=='function'){
-				if(this.status=='rejected')
-					resolve(rejectHandler(this.result))
-				else 
-					_private.rejectHandler=rejectHandler;
-			}
-				
-			return promise2;
-		}
-	}
-
-
 
 
 
 	/*
-	* Add timeout to a promise or function (func will be called)
+	* Reject a promise after a timeout if it remains unfinished 
 	*
-	* @return Promise(any, any|Promise)
+	* This is suitable when you intend to STOP WAITING after the $timeout.
+	*
+	* @param <Promise> promise
+	* @param number timeout
+	* @opt function abandonHandler   Promise.race would normally abandon $promise if the $timeout expires first, pass this function to 
+	*	                             be called with the $promise in that case
+	*
+	* @return Promise(any, any|'timeout')
 	*/
-	function promiseTimeout(promise,timeout=1,rejectValue='timeout'){
-		promise=toPromise(promise);
+	function rejectOnUnsettledTimeout(promise,timeout,abandonHandler){
+		vX.checkTypes(['promise','number','function*'],arguments);
+
 		return Promise.race([
 			promise
-			,sleep(timeout).then(()=>{
-				if(arguments.length==3){
-					//Since we're abandoning it, we can't have it fail async silently...
-					promise.catch(_log.error); 
-					return Promise.reject(rejectValue)
-				}else{
-					//rejecting with promise object doesn't wait for it to finish, but the caller
-					//can add their own handling to it
-					return Promise.reject(promise) 
-				}
 
+			//NOTE: if vv runs first and then ^^ fails then ^^ will NOT produce an uncaught error...
+
+			,sleep(timeout).then(function onTimeout(){
+				//Pass to optional handler...
+				if(abandonHandler)
+					abandonHandler(promise);
+				return Promise.reject('timeout') 
 			})
-		]);
-		
+		]);	
 	}
 
 
 
 	/*
-	* Register a callback that runs if a promise hasn't finished within a timeout
+	* Run a $callback if a $promise remains unfinished (resolved or rejected) after a $timeout WITHOUT affecting the promise
 	*
-	* @param @anyorder function callback
+	* This is suitable when you intend to KEEP WAITING after the $timeout, eg. use to show 'still waiting' message.
+	*
+	* @param @anyorder function callback   NOTE: any error thrown by this will not be caught
 	* @param @anyorder number timeout
-	* @param @anyorder <Promise> promise
+	* @param @anyorder <Promise> promise   
 	*
 	* @return number 		The id required to remove the timeout
 	*/
-	function addTimeoutCallback(...args){
+	function runOnUnsettledTimeout(...args){
 		var callback=aX.getFirstOfType(args,'function')||_log.throwCode("EINVAL","No callback function was passed in.")
 			,timeout=aX.getFirstOfType(args,'number')||_log.throwCode("EINVAL","No timeout delay (number) was passed in.")
 			,promise=aX.getFirstOfType(args,'promise')||_log.throwCode("EINVAL","No promise to add the timeout to was passed in.")
 		;
-		vX.checkTypes(['function','number','promise'],[callback,timeout,promise]);
 
 		//Create a flag that get's undone by the finishing of the promise...
 		var finished=false;
-		thenCallback(promise,()=>finished=true);
+		promise.always(()=>finished=true).catch(()=>{})
 
 		//Run a timeout and if the flag hasn't been undone, call the callback
 		return setTimeout(()=>{
 			if(!finished)
-				try{callback()}catch(err){log.error(err)}
+				callback(); //if this throws it will be uncaught... handle with seperate onuncaught...
 		},timeout)
 	}
 
-
-	/*
-	* Add timeout to an existing promise, either by replacing the resolve/reject functions or the promise itself. 
-	* Said timeout can easily be cleared (@see return)
-	*
-	* @param number timeout 	Number of ms until timeout. NOTE: can be passed in any order
-	*
-	* @opt function resolve
-	* @opt function reject
-	* @return object{resolve,reject,clear} 	Returns 3 functions, new resolve and reject, and a clear timeout
-	*   
-	*   -or-
-	* @opt <Promise> promise
-	* @return object{promise,clear} 		Returns a new promise and a function to clear timeout
-	*/
-	function rejectTimeout(...args){
-		var timeout=aX.getFirstOfType(args,'number','extract');
-
-		//Allow for the 2 different arg types
-		if(vX.checkType(['function','promise'],args[0])=='promise'){
-			//here we'll be adding a step in the promise ladder and return the new promise
-			return timeout_replacePromise(timeout, args[0]);
-		}else{
-			//here we'll be replacing the two functions. 
-			args.unshift(timeout);
-			return timeout_replaceFuns.apply(this,args);			
-		}
-
-	}
-	function timeout_replacePromise(timeout,promise){
-		//Create a promise that rejects after the timeout, and a function that clears it
-		var id
-			,timeoutPromise=new Promise((resolve,reject)=>{
-				id=setTimeout(()=>{
-					//Reject this promise...
-					reject('timeout');
-
-					//...but that means the other promise is still pending and if it rejects we may never see that error, so make sure to log it
-					promise.catch(err=>_log.makeError(err).addHandling("This rejection comes from an already timed out promise").exec());
-
-				},timeout);
-			})
-			,clear=()=>{clearTimeout(id);}
-		;
-
-		
-		promiseAlways(promise,clear)
-
-		//Race that and the original promise, creating a new one that rejects with 'timeout' if the old hasn't already finished
-		var newPromise=Promise.race([
-			promiseAlways(promise,clear) //clear the timeout when the old finishes
-			,timeoutPromise
-		]);
-
-		return {clear,promise:newPromise};
-	}
-	function timeout_replaceFuns(timeout,resolve,reject){
-			//Make sure we've got both resolve and reject
-			vX.checkType('function',reject);
-
-
-			// console.log('setting timeout');
-			let id=setTimeout(()=>{
-				// console.log('rejected about to time out');
-				reject('timeout');
-			},timeout);
-
-			let clear=()=>{clearTimeout(id);};
-			
-			// console.log('creating new resolve');
-			let newResolve=function(x){
-				// console.log('new resolve called');
-				clearTimeout(id);
-				resolve(x);
-			}
-
-			let newReject=function(x){
-				clearTimeout(id);
-				reject(x);	
-			}
-			// console.log('returning new resolve');
-			return {resolve:newResolve,reject:newReject,clear:clear};
-	}
 
 
 
@@ -563,11 +248,11 @@ module.exports=function export_pX({_log,vX,aX}){
 			,err=>{ret.inspect.done=true;ret.inspect.status='rejected';ret.inspect.result=err;return Promise.reject(err)}
 		);
 
-
-		if(typeof timeout=='number'){
-			Object.assign(ret,rejectTimeout(timeout,ret.resolve,ret.reject));
+		//If a timeout is passed in, call reject() after that delay (has no effect if resolve/reject already called)
+		if(timeout>0){
+			let id=setTimeout(()=>{ret.reject('timeout')},timeout);
+			ret.clear=()=>clearTimeout(id);
 		}
-
 
 		ret.callback=function(err,data){return err ? ret.reject(err) : ret.resolve(data)};
 
@@ -579,40 +264,66 @@ module.exports=function export_pX({_log,vX,aX}){
 	/*
 	* Exposes a group of promises, see @return
 	*
-	* @param array promises 	All items will be sent to @see toPromise()
-	* @param @opt <BetterLog>   Will log.error(reject) and log.trace(resolve)
-	* @param @opt <Emitter>  	Any object with 'emit' method. Emits 'resolve','reject','finished'
+	* @param array|object promises 	All items will be sent to @see toPromise(). If object the keys will be returned by r.remainingKeys()
+	* @opt <BetterLog>              Will log.error(reject) and log.trace(resolve)
+	* @opt <Emitter>  	            Any object with 'emit' method. Called with: ('resolve'|'reject'|'finished', value, index)
+	* @opt function  	            A callback function that will be called with each promise on completion, args: (rejected,resolved). 
+	*                                ProTip: check arguments.length to determine if promise was resolved or rejected 
+	*
+	* ProTip: if you need to know the index of the callback you can create a "fake emitter" like so: {emit:(evt,value,index)=>{switch(evt){...}}}. Just don't
+	*         forget that one of the events is 'finished'
 	*
 	* @return object 	See top and bottom of function body
 	*/
 	function groupPromises(promises,...optional){
 		
-		vX.checkTypes(['array'],[promises]); //use typeS so it throws 'arg #1...'
-
+		vX.checkTypes([['array','object']],[promises]); //use typeS so it throws 'arg #1...'
+		
 		//Grab optional args
-		var i=optional.length-1,log,emitter;
+		var i=optional.length-1,log,emitter,cb;
 		for(i;i>=0;i--){
 			let x=optional[i];
 			if(x && typeof x=='object'){
-				if(x.constructor.name=='BetterLog')
-					log=x;
-				else if(typeof x.emit=='function')
+				if(x.constructor.name=='BetterLog'){
+					if(!log){ //if more than one is passed, just ignore
+						log=x;
+					}
+				}
+				else if(typeof x.emit=='function'){
 					emitter=x;
+				}
+				else if(typeof x=='function'){
+					cb=x;
+				}
 			}
 		}
 		
-		//Make sure we have an array of promises. This will call any functions, wrap any values etc.
-		promises=promises.map(toPromise)
+		//Make sure we have an array/object of promises. This will call any functions, wrap any values etc.
+		for(let key of Object.keys(promises)){
+			promises[key]=toPromise(promises[key])
+		}
 
 		//Prepare the return object 
 		var r={
-			resolved:[]  	//array[any] - indexes match $promises (implies holes), values are resolved data
-			,rejected:[]    //array[any] - indexes match $promises (implies holes), values are rejected err
-			,all:[] 		//array[any] - indexes match $promises, [[result(true/false), value],...]
-			,promises: promises  //array[<Promise>]
-			,err:null 		 //string - 'x of y promises rejected, z remaining'
+			promises: promises                      //array|object[<Promise>,...]
+			,resolved:new promises.constructor()  	//array|object - indexes match $promises (implies holes if array passed in), values are resolved data
+			,rejected:new promises.constructor()    //array|object - indexes match $promises (implies holes if array passed in), values are rejected err
+			,results:new promises.constructor()     //array|object - indexes match $promises, [[result(true/false), value],...]
+			,err:null 		                        //string - 'x of y promises rejected'
 		};	
-		Object.defineProperty(r,'remaining',{enumerable:true,get:()=>{return r.promises.length-Object.keys(r.all).length}});
+		Object.defineProperties(r,{
+			'length':{enumerable:true,get:()=>Object.keys(r.promises).length}
+			,'finished':{enumerable:true,get:()=>Object.keys(r.results).length}
+			,'executing':{enumerable:true,get:()=>r.length-r.finished}
+			,'progress':{enumerable:true,get:()=>Math.round(r.finished/r.length*100)} //0-100
+			,'status':{enumerable:true,get:()=>{
+				var status=new promises.constructor();
+				for(let key of Object.keys(promises)){
+					status[key]=(r.results.hasOwnProperty(key)?(r.results[key][0]?'resolved':'rejected'):'running');
+				}
+				return status;
+			}}
+		});
 
 		//2019-11-28: NO, do not do this vv. If you do this r.promise never resolves... for some reason
 		//Add shortcuts to...
@@ -622,32 +333,36 @@ module.exports=function export_pX({_log,vX,aX}){
 
 		//Loop through the promises and handle, ie. creating a new array of promises 
 		//that will all resolve AND at the same time populate the arrays of the return obj
-		let l=r.promises.length;
-		var handledPromises=r.promises.map((groupedPromise,i)=>groupedPromise
+		var strKey=(x)=>{let y=Number(x);return (isNaN(y) ? `'${x}'` : `#${y}`)};
+		var handledPromises=Object.entries(r.promises).map(([key,promise])=>promise
 			.then(
 				resolved=>{
-					r.resolved[i]=resolved; 
-					r.all[i]=[true, resolved]
+					r.resolved[key]=resolved; 
+					r.results[key]=[true, resolved]
 					
 					if(log)
-						log.trace(`Promise #${i} resolved (${r.remaining} remaining) with:`,resolved);
+						log.trace(`Promise ${strKey(key)} resolved (${r.executing.length} still running) with:`,resolved);
 					if(emitter)
-						emitter.emit('resolve',resolved,i)
+						emitter.emit('resolve',resolved,key)
+					if(cb)
+						cb(undefined,resolved);
 				}
 				,rejected=>{
-					r.rejected[i]=rejected; 
-					r.all[i]=[false, rejected]
+					r.rejected[key]=rejected; 
+					r.results[key]=[false, rejected]
 
 					
 					if(log)
-						log.makeError(rejected).addHandling(`Promise ${i+1} rejected (${r.remaining} remaining)`).exec();
+						log.makeError(rejected).addHandling(`Promise ${strKey(key)} rejected (${r.executing} still running)`).exec();
 					if(emitter)
-						emitter.emit('reject',rejected,i);
+						emitter.emit('reject',rejected,key);
+					if(cb)
+						cb(rejected);
 
-					var msg=`${Object.keys(r.rejected).length} of ${l} promises rejected`
-					if(r.remaining)
-						msg+=`, ${r.remaining} remaining`
-					r.err=msg;
+					var err=`${Object.keys(r.rejected).length} of ${r.promises.length} promises rejected`
+					if(r.progress<100)
+						err+=`, ${r.executing.length} still running`
+					r.err=err;
 				}
 			) 
 			.then(function allFinished(){
@@ -659,14 +374,15 @@ module.exports=function export_pX({_log,vX,aX}){
 			})
 		);
 
-		//Finally, add a promise that resolves/rejects when all promises have finished
-		r.promise=Promise.all(handledPromises).then(()=>(r.err?Promise.reject(r):r)) 
+		//Finally, add a promise that resolves/rejects when all promises have finished...
+		r.promise=Promise.all(handledPromises).then(()=>{return (r.err?Promise.reject(r):r)}) 
 
+		//...and one that always resolves
+		r.always=Promise.all(handledPromises).then(()=>r);
 
 		return r;
 	}
 
-		
 
 
 
@@ -686,39 +402,9 @@ module.exports=function export_pX({_log,vX,aX}){
 	}
 
 
-	/*
-	* Call a callback on both success/fail in a promise flow, resolveing/rejecting with the same value
-	* that was passed in, ie. response from callback will be ignored
-	*
-	* @param <Promise>|any promise 			
-	* @param function(err,data) callback
-	*
-	* @return Promise  			
-	*/
-	function promiseAlways(promise,callback){
-		return Promise.resolve(promise).then(
-			data=>{callback(null,data); return data}
-			,err=>{callback(err); return Promise.reject(err)}
-		);
-	}
 
 
 
-	/*
-	* Call an async function which is expecting a callback as last argument, returning a 
-	* promise instead
-	*
-	* @param function func
-	* @opt any ...args
-	*
-	* @return Promise(any,err);
-	*/
-	function promisifyCallback(func,...args){
-		var {callback,promise}=exposedPromise();
-		args.push(callback);
-		func.apply(this,args)
-		return promise;
-	}
 
 
 	return _exports;

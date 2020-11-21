@@ -14,25 +14,28 @@ module.exports=function export_stX({_log,vX}){
 
 	//Methods to export
 	var _exports={
-		md5hash
-		,formatString
+		formatString
 		,firstToUpper
 		,firstToLower
 		,toLower
 		,trim
 		,substring
+		,'substr':substring //alias
 		,replaceAll
 		,escapeRegExp
 		,regexpAll
+		,toCamelCase
+		,'dashToCamel':toCamelCase
 		,limitString
 		,split
 	    ,splitAt
 	    ,indexWords
 	    ,linuxTableToObjects
 	    ,progressBar
+	    ,queryStrToKeyValuePairs
+		,keyValuePairsToQueryStr
 	    ,queryStrToObj
-		,toCamelCase
-		,'dashToCamel':toCamelCase
+	    ,objToQueryStr
 		,randomString
 		,getUniqueString
 		,safeReplace
@@ -42,22 +45,7 @@ module.exports=function export_stX({_log,vX}){
 	};
 
 
-	/*
-	* Get hexdec encoded md5 sum of string
-	*
-	* @param string str
-	*
-	* @return string 	
-	*/
-	function md5hash(str){
-		if(typeof CryptoJS=='undefined')
-			throw new Error("Cannot find CryptoJS");
-		if(typeof str != 'string')
-			throw new TypeError("Can only hash strings")
 
-		var hash = CryptoJS.MD5(str);
-		return hash.toString(CryptoJS.enc.hex);
-	}
 
 
 	/*
@@ -66,39 +54,41 @@ module.exports=function export_stX({_log,vX}){
 	* @param string format
 	* @param string str
 	*
-	* @return string 		The formated $str, or an empty string if no such format exists or
-	*						$str wasn't a string
+	* @throw TypeError
+	* @throw EINVAL        Not a recognized format
+	*
+	* @return string 	   The formated $str. 
 	*/
 	function formatString(format,str){
-		if(typeof str!='string')
-			return '';
+		vX.checkTypes(['string','string'],arguments);
 
-		switch(format){
-			case 'firstToUpper':
-			case 'firstBig':
+		switch(format.toLowerCase()){
+			case 'firsttoupper':
+			case 'firstbig':
 			case 'capitalize':
 				return firstToUpper(str);
-			case 'firstToLower':
-			case 'firstSmall':
+			case 'firsttolower':
+			case 'firstsmall':
 				return firstToLower(str);
-			case 'toLowerCase':
-			case 'toLower':
+			case 'tolowercase':
+			case 'tolower':
 			case 'lower':
 			case 'low':
 			case 'small':
 				return str.toLowerCase();
-			case 'toUpperCase':
-			case 'toUpper':
+			case 'touppercase':
+			case 'toupper':
 			case 'upper':
 			case 'up':
 			case 'big':
 			case 'large':
 			case 'capitals':
 				return str.toUpperCase();
+			default:
+				log.throwCode('EINVAL',"Not a recognized format:",format);
 		}
-
-		return '';
 	}
+
 
 	/*
 	* Capitalize first letter of string
@@ -301,6 +291,19 @@ module.exports=function export_stX({_log,vX}){
 
 
 
+	/*
+	* Convert "hello-world" => "helloWorld"
+	*
+	* @param string str
+	* @return string
+	*/
+	function toCamelCase(str,delim='-'){
+		vX.checkTypes(['string','string'],[str,delim]);
+		return str.replace(new RegExp(`\\${delim}([a-z])`, 'g'), (match,capture)=>capture.toUpperCase())
+	}
+
+
+
 
 
 	/*
@@ -470,42 +473,67 @@ module.exports=function export_stX({_log,vX}){
 	}
 
 
-
+	/*
+	* @param number progress      Can be 0-1 or 2-100. >100 treated as 1 (but warns) (ie. you should use 0-1)
+	* @param number totalLength   
+	* @param string|number color  Defaults to black
+	* @param string fill          The character to use for the part of the progress bar that has passed
+	* @param string empty         The character to use for the part of the progress bar remains
+	*
+	* @throws <ble TypeError>     on $progress
+	*
+	* @return string
+	*/
 	function progressBar(progress,totalLength=10,color=null,fill='x',empty='.'){
+		vX.checkType('number',progress);
+		
+		if(progress>1&&progress<100)
+			progress=progress/100
+		else if(progress>100){
+			_log.warn("Progress should be between 0-1, defaulting to 1. Got: "+progress);
+			progress=1;
+		}
+
+		if(typeof totalLength!='number')
+			totalLength=10;
+
 		var prog=Math.round(progress*totalLength),rest=totalLength-prog
+		
 		fill=fill.repeat(prog);
+		
 		if(color)
-			fill=wrapInBashColor(fill,color);
-		return '['+fill+empty.repeat(rest)+']';
+			fill=wrapInBashColor(fill,color); //no throw, defaults to black
+		
+		return '['+String(fill)+String(empty).repeat(rest)+']';
 
 	}
 
 
 	/*
-	* Turn a hash or search string into an object
+	* Turn a hash or search string into an array of key/value pairs
 	*
 	* @param string str 	A query string like "hello=bob&foo[]=bar,car", with or without leading # or ?
 	*
-	* @see obj.util.js:objToQueryStr()
+	* @see keyValueParisToQueryStr()
 	*
 	* @throw <ble.TypeError>
-	* @return object 		Eg. {hello:"bob",foo:["bar","car"]}
+	* @return object 		Eg. [ ["hello","bob"], ["foo",["bar","car"]] ]
 	*/
-	function queryStrToObj(str){
+	function queryStrToKeyValuePairs(str){
 		vX.checkType('string',str);
 
 		//Remove leading ? or #
 		if(str.substring(0,1)=='#'||str.substring(0,1)=='?')
 			str=str.substring(1);
 
-		var obj={},pairs = str.split('&'),i=pairs.length-1;
-	    for (i;i>=0;i--) {
+		return str.split('&').map(pair=>{			
 	    	try{
-		        var pair = pairs[i].split('='),key=pair[0];
+		        var [key,value]=pair.split('=');
+
 		        //Empty values are allowed (the key becomes a flag), but not missing keys
 		        if(key){
 		        	//First turn obvious stuff into their real vartype, like numbers, null, undefined etc.
-		        	var value=vX.stringToPrimitive(pair[1]);
+		        	var value=vX.stringToPrimitive(value);
 		        	// if it's still a string, decode it...
 		        	if(value && typeof value=='string'){
 		        		value=decodeURIComponent(value);
@@ -525,27 +553,81 @@ module.exports=function export_stX({_log,vX}){
 			        }else if(value[0]=='{' || value[0]=='['){
 			        	value=vX.tryJsonParse(value) //will return parsed object or the same string on fail
 			        }
-			        obj[key]=value;
+			        return [key,value];
 		        }
 	    	}catch(err){
-	    		_log.warn("Bad pair in uri string:",pairs[i],str,err);
+	    		_log.warn("Bad pair in uri string:",pair,str,err);
 	    	}
-	    }
-	    return obj;
+	    	return false;
+		}).filter(pair=>pair);
+	    
+	}
+
+
+	/*
+	* Turn an array of key/value pairs into a legal query string
+	*
+	* @param array arr 	Eg. [ ["hello","bob"], ["foo",["bar","car"]] ]
+	*
+	* @see queryStrToKeyValuePairs()
+	*
+	* @throw <ble.TypeError>
+	* @return string 		Eg. "hello=bob&foo[]=bar,car". NOTE: no leading '?' or '#'
+	*/
+	function keyValuePairsToQueryStr(arr){
+		vX.checkType('array',arr);
+		return arr.map(([key,value])=>{
+			//For all-primitive, arrays we use the special syntax: key[]=item1,item2
+			if(Array.isArray(value) && vX.allPrimitive(value)){
+				key+='[]'
+				value=value.join(',');
+			}
+
+			if(typeof value=='object'){
+				value=JSON.stringify(value);
+			}
+
+			//Empty string, null and undefined all get turned into empty string
+			if(vX.isEmpty(value,null)){ //null is normally considered non-empty
+				value=''
+			}
+			return key+'='+encodeURIComponent(value);
+		}).join('&');
+	}
+
+
+
+
+	/*
+	* Turn a hash or search string into an object
+	*
+	* @param string str 	A query string like "hello=bob&foo[]=bar,car", with or without leading # or ?
+	*
+	* @see objToQueryStr()
+	*
+	* @throw <ble.TypeError>
+	* @return object 		Eg. {hello:"bob",foo:["bar","car"]}
+	*/
+	function queryStrToObj(str){
+		var obj={};
+		queryStrToKeyValuePairs(str).forEach(([key,value])=>obj[key]=value);
+		return obj;
 	}
 
 	/*
-	* Convert "hello-world" => "helloWorld"
+	* Turn an object into a legal query string
 	*
-	* @param string str
-	* @return string
+	* @param object obj 	Eg. {hello:"bob",foo:["bar","car"]}
+	*
+	* @see queryStrToObj()
+	*
+	* @throw <ble.TypeError>
+	* @return string 		Eg. "hello=bob&foo[]=bar,car". NOTE: no leading '?' or '#'
 	*/
-	function toCamelCase(str,delim='-'){
-		if(delim!='-')
-			str=str.replace(delim,'-')
-		return str.replace(new RegExp('-([a-z])', 'g'), (match,capture)=>capture.toUpperCase())
+	function objToQueryStr(obj){
+		vX.checkType('object',obj);
+		return keyValuePairsToQueryStr(Object.entries(obj));
 	}
-
 
 
 
@@ -613,38 +695,52 @@ module.exports=function export_stX({_log,vX}){
 		,'white':37  
 	}    
 		
+	/*
+	* @param string|number
+	* @return number
+	* @no-throw          Defaults to the color black
+	*/
 	function getBashColor(color){
-		if(vX.checkType(['string','number'],color)=='number'){
-			// Just assume it's right
-			return color;
-		}else{
-			color=color.toLowerCase();
+		try{
+			if(vX.checkType(['string','number'],color)=='number'){
+				// Just assume it's right
+				return color;
+			}else{
+				color=color.toLowerCase();
 
-			//First make sure we have a color
-			var base=Object.keys(bashColors).find(c=>color.includes(c));
-			if(!base)
-				_log.throwCode('EINVAL',"This color doesn't exist: "+color);
-			base=bashColors[base];
+				//First make sure we have a color
+				var base=Object.keys(bashColors).find(c=>color.includes(c));
+				if(!base)
+					_log.throwCode('EINVAL',"This color doesn't exist: "+color);
+				base=bashColors[base];
 
-			//Then check if it's a background
-			if(color.includes('background'))
-				base+=10
+				//Then check if it's a background
+				if(color.includes('background'))
+					base+=10
 
-			//Then check if it's bright
-			if(color.includes('bright'))
-				base+=60
+				//Then check if it's bright
+				if(color.includes('bright'))
+					base+=60
 
-			return base;
+				return base;
+			}
+		}catch(err){
+			_log.warn('Bad color, defaulting to black.',err);
 		}
-
+		return bashColors['black'];
 	}
 
 	/*
 	* Wrap string in bash color codes
+	*
+	* @param string str                 Any value will be turned into string
+	* @params string|number ...colors   Bad colors will default to black
+	*
 	* @return string
+	* @no-throw             
 	*/
 	function wrapInBashColor(str,...colors){
-		return colors.map(c=>'\x1b['+getBashColor(c)+'m').join('')+str+'\x1b[0m';
+		return colors.map(c=>'\x1b['+getBashColor(c)+'m').join('')+String(str)+'\x1b[0m';
 	}
 
 	/*
@@ -654,6 +750,8 @@ module.exports=function export_stX({_log,vX}){
 	function wrapSubstrInBashColor(str,start,stop,...colors){
 		return str.substr(0,start)+wrapInBashColor(str.substr(start,stop-start),...colors)+str.substr(stop);
 	}
+
+
 
 
 

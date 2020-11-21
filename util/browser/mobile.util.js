@@ -9,7 +9,7 @@
 * This module is required by bu-browser
 */
 ;'use strict';
-module.exports=function export_mobX({cX,_log,elemX}){
+module.exports=function export_mobX(bu){
 
 	
 
@@ -60,10 +60,10 @@ module.exports=function export_mobX({cX,_log,elemX}){
 	*/
 	function detectSwipe(...args) {
 		//First get the args
-		var cb=cX.getFirstOfType(args,'function')||_log.makeError('No callback function given').setCode('EINVAL').throw();
-		var elem=elemX.getLiveElement(cX.getFirstOfType(args,'node')||cX.getFirstOfType(args,'string')||window); //should not throw...
-		var deltaMin=cX.getFirstOfType(args,'number')||90;
-		var preventScroll=cX.getFirstOfType(args,'boolean')||false;
+		var cb=bu.getFirstOfType(args,'function')||bu._log.makeError('No callback function given').setCode('EINVAL').throw();
+		var elem=bu.getLiveElement(bu.getFirstOfType(args,'node')||bu.getFirstOfType(args,'string')||window); //should not throw...
+		var deltaMin=bu.getFirstOfType(args,'number')||90;
+		var preventScroll=bu.getFirstOfType(args,'boolean')||false;
 
 
 		//2020-03-16: See above
@@ -104,20 +104,20 @@ module.exports=function export_mobX({cX,_log,elemX}){
 			if(Math.abs(deltaX)>deltaMin){
 				swipe=true;
 				let d= deltaX > 0 ? 'right' : 'left';
-				_log.debug("detected swipe "+d,{deltaX,deltaMin});
+				bu._log.debug("detected swipe "+d,{deltaX,deltaMin});
 				cb(d);
 			}
 
 			if(Math.abs(deltaY)>deltaMin){
 				swipe=true;
 				let d= deltaY > 0 ? 'up' : 'down';
-				_log.debug("detected swipe "+d,{deltaY,deltaMin});
+				bu._log.debug("detected swipe "+d,{deltaY,deltaMin});
 				cb(d);
 			}
 
 			//If no swipe happened, but we DID move our finger... just say so...
 			if(!swipe && (deltaY || deltaX)){
-				_log.trace("no swipe, too short...",{deltaX,deltaY,deltaMin});
+				bu._log.trace("no swipe, too short...",{deltaX,deltaY,deltaMin});
 			}
 		}, passiveOrBubble)
 	}

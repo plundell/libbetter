@@ -28,20 +28,6 @@ module.exports=function exportBetterUtil(dep){
 
 
 
-    //Some node-version functions moved from cX
-    cX.timerStart=function timerStart(){
-        return process.hrtime();
-    }
-
-    cX.timerStop=function timerStop(start,format){
-        var durr=process.hrtime(start)
-        	,nano=(durr[0]*1000000000)+durr[1]
-        ;
-        return cX.formatNano(nano,format);
-    }
-
-
-
 
 
 	const sX=require('./node/stream.util.js')({cX});

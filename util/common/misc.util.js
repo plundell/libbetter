@@ -10,7 +10,7 @@
 * 								this script is executed in
 */
 'use strict';
-module.exports=function export_mX({_log,stX,vX}){
+module.exports=function export_mX({_log,aX,vX}){
 
 	//Methods to export
 	var _exports={
@@ -18,8 +18,11 @@ module.exports=function export_mX({_log,stX,vX}){
 		'round':round
 
 		,'getRandomInt':getRandomInt
+		,getRandomKey
 
 		,'eventTimeout':eventTimeout
+
+		,keyedBuffer
 
 		,'mapping':{
 			'prepare':prepareMap
@@ -47,9 +50,18 @@ module.exports=function export_mX({_log,stX,vX}){
 
 
 	function getRandomInt(max=1000000) {
-	  	return Math.floor(Math.random() * Math.floor(max));
+	  	return Math.floor(Math.random() * Math.floor(max-1))+1;//+1 we we don't get 0; 
 	}
 
+	function getRandomKey(obj,max){
+		var key=getRandomInt(max)
+		
+		while(obj.hasOwnProperty(key)){
+			key+=1;
+		}
+
+		return key;
+	}
 
 
 
@@ -77,6 +89,75 @@ module.exports=function export_mX({_log,stX,vX}){
 
 
 
+  	/*
+    * A buffer that keeps track of trigger keys
+    *
+    * @param function callback
+    * @param number delay
+    *
+    * @throw TypeError
+    * @return object
+    */
+    function keyedBuffer(){
+		var log=aX.getFirstOfType(arguments,'<BetterLog>')||_log;
+		var delay=aX.getFirstOfType(arguments,'number')||log.throwType('number',undefined);
+		var callback=aX.getFirstOfType(arguments,'function')||log.throwType('function',undefined);
+
+		//Allow it to work with or without 'new'
+		var obj=this instanceof keyedBuffer ? this : {};
+
+		var list, grouped, timerId;
+
+		Object.defineProperties(obj,{
+			callback:{enumerable:true,set:(cb)=>{if(typeof cb=='function')callback=cb},get:()=>callback}
+			,delay:{enumerable:true,get:()=>delay, set:(val)=>{if(typeof val=='number')delay=val}}
+			,length:{get:()=>list.length}
+			,list:{get:()=>list}
+			,grouped:{get:()=>grouped}
+			,keys:{get:()=>Object.keys(grouped)}
+		})
+
+
+		obj.empty=function(){
+			if(timerId){
+				clearTimeout(timerId);
+				timerId=null;
+			}
+	        var _grouped=grouped;
+	        grouped={};
+			var _list=list;
+			list=[];
+			return [_grouped,_list];
+		}
+
+		/*
+		* Buffer an item and trigger timeout
+		*
+		* @param string|number key
+		* @param any           value
+		* 
+		* @return void
+		*/
+		obj.buffer=function(key,value){
+	        
+			//Add the key/value to the store, newest first
+	        grouped[key]=grouped[key]||[]
+	        grouped[key].unshift(value); 
+	        list.unshift([key,value]);
+
+	       	//If we haven't already triggered the timeout
+	        if(!timerId){
+	            timerId=setTimeout(()=>{
+	                //Empty buffer and reset flag so it can be triggered again, then run the callback
+	                obj.callback(...obj.empty());
+	            }, obj.delay);
+	        }
+		}
+
+		obj.empty(); //init
+
+        return obj;    
+    }
 
 
 

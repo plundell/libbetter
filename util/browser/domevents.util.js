@@ -9,9 +9,9 @@
 *
 * This module is required by bu-browser
 */
-module.exports=function export_mobX({cX,_log}){
+module.exports=function export_mobX(bu){
 
-	
+
 
 	//Methods to export
 	var _exports={
@@ -33,7 +33,7 @@ module.exports=function export_mobX({cX,_log}){
 	function markInputting(timeout=100){
 		//If this was previously called, just remove the listener and add it again
 		if(unmark){
-			_log.note("You were already marking inputs. Removing that and running again. Check that you want"
+			bu._log.note("You were already marking inputs. Removing that and running again. Check that you want"
 				+" to be calling it this many times.");
 			unmark();
 			unmark=null;
@@ -52,7 +52,7 @@ module.exports=function export_mobX({cX,_log}){
 					lastInput=event.target;
 
 					//Now prepare the new input...
-					event.target.inputting=cX.betterTimeout(function(){
+					event.target.inputting=bu.betterTimeout(function(){
 						event.target.removeAttribute('inputting');
 						delete event.target.inputting;
 					},timeout)
@@ -73,7 +73,7 @@ module.exports=function export_mobX({cX,_log}){
 		document.body.addEventListener('input',callback,options)
 
 		//...then return another function that can be used once to remove it (additional calls will just be ignored)
-		unmark=cX.once(function unmarkInputting(){document.body.removeEventListener('input',callback,options);});
+		unmark=bu.once(function unmarkInputting(){document.body.removeEventListener('input',callback,options);});
 		return unmark;
 	}
 
@@ -87,9 +87,9 @@ module.exports=function export_mobX({cX,_log}){
 	* @return function 				A function to remove the throttle
 	*/
 	function throttleInput(elem,delay=100){
-		cX.checkType(['node','number'],arguments);
+		bu.checkType(['node','number'],arguments);
 		
-		var timeout=cX.betterTimeout(delay,elem,elem.dispatchEvent);
+		var timeout=bu.betterTimeout(delay,elem.dispatchEvent.bind(elem));
 		
 		function throttledInput(event){
 			if(!event.throttled){

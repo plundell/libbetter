@@ -9,7 +9,7 @@
 * This module is required by bu-browser
 */
 ;'use strict';
-module.exports=function export_restX({cX,_log}){
+module.exports=function export_restX(bu){
 
 
 	
@@ -47,8 +47,8 @@ module.exports=function export_restX({cX,_log}){
 	function POST(target,data,log){
 		
 		//Use the passed in log or the util log
-		if(!_log._isLog(log))
-			log=_log
+		if(typeof log!='object' || !log || !log._isBetterLog)
+			log=bu._log
 		
 		if(typeof target!='string')
 			return log.rejectType('arg#1 to be string target, eg. api.php',target);

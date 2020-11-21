@@ -19,15 +19,19 @@ module.exports=function export_tX({vX,_log}){
 		,formatDate
 		,formatDatetime
 
-		,now
+		,'now':formatDatetime //string, YYYY-MM-DDTHH:MM[:SS.XXX]
+		,nowMs:()=>Date.now()//number, ms since epoch
+
+
 		,today
 		,tomorrow
 		,todayMs
 		,tomorrowMs
 		,age
 		
-		// ,timerStart //moved to bu-browser and bu-node
-		// ,timerStop  //moved to bu-browser and bu-node
+		,nanotime
+		,'timerStart':nanotime
+		,timerStop 
 		,formatNano
 
 		,timeToDate
@@ -171,14 +175,14 @@ module.exports=function export_tX({vX,_log}){
 
 
 	/*
-	* @param mixed dateOrDatetime
-	* @opt string time
+	* @opt mixed dateOrDatetime  	Defaults to 'now'. Can contain the time.
+	* @opt string time              Used to specify time seperately, overrides time component of $dateOrDatetime
 	*
 	* @return <Date>
 	*/
-	function makeDate(dateOrDatetime,time=null){
-		if(typeof dateOrDatetime=='undefined')
-			return Date.now();
+	function makeDate(dateOrDatetime='now',time=undefined){
+		if(typeof dateOrDatetime=='undefined'||dateOrDatetime=='now')
+			return new Date();
 		else{
 			if(time){
 				var d=new Date(formatDate(dateOrDatetime)+'T'+formatTime(time))
@@ -186,16 +190,18 @@ module.exports=function export_tX({vX,_log}){
 				d=new Date(dateOrDatetime);
 			}
 			if(d=='Invalid Date'){
-				_log.throwCode('EINVAL',"Invalid Date:",_log.constructor.logVar(x));
+				_log.throwCode('EINVAL',"Could not create date from:",dateOrDatetime,time);
 			}
 			return d;
 		}
 	}
 
 	/*
+	* @opt mixed x  	The date to use. Defaults to 'now'. @see makeDate()
+	*
 	* @return string 	YYYY-MM-DD
 	*/
-	function formatDate(x){
+	function formatDate(x='now'){
 		x=makeDate(x);
 		var YYYY = x.getFullYear(),
 			MM = String(x.getMonth() + 1).padStart(2, '0'), //+1 => january is month 0
@@ -207,9 +213,12 @@ module.exports=function export_tX({vX,_log}){
 
 
 	/*
+	* @param <Date>|string|number x
+	* @opt string precision           Defaults to minutes. Accepted values are 's' or 'ms'
+	*
 	* @return string 	HH:MM
 	*/
-	function formatTime(x){
+	function formatTime(x,precision=undefined){
 		switch(vX.checkType(['<Date>','string','number'],x)){
 			case 'string':
 				//There are a number of options here, we could have eg:
@@ -227,20 +236,36 @@ module.exports=function export_tX({vX,_log}){
 			default:
 				var HH=String(x.getHours()).padStart(2, '0')
 					,MM=String(x.getMinutes()).padStart(2, '0')
-				
-				return `${HH}:${MM}`;
+				;
+				var time=`${HH}:${MM}`;
+				if(typeof precision=='string'){
+					if(precision=='ms'||precision=='s')
+						time+':'+String(x.getSeconds()).padStart(2, '0')
+					if(precision=='ms')
+						time+'.'+String(x.getMilliseconds()).padStart(2, '0')
+
+				}
+				return time;
 		}
 	}
 
 
 	/*
-	* @params @see makeDate()
+	* @params dateOrDatetime @see makeDate
+	* @opt time @see makeDate
 	*
-	* @return string YYYY-MM-DDTHH:MM
+	* @opt @last string precision  
+	* 
+	* @return string YYYY-MM-DDTHH:MM:SS.XXX
 	*/
-	function formatDatetime(){
-		var dt=makeDate.apply(this,arguments);
-		return formatDate(dt)+'T'+formatTime(dt);
+	function formatDatetime(...args){
+		//Check if precision is the last arg...
+		if(['s','ms'].includes(args[args.length-1])){
+			var precision=args.pop();
+		}
+		
+		var dt=makeDate.apply(this,args);
+		return formatDate(dt)+'T'+formatTime(dt,precision);
 	}
 
 
@@ -250,18 +275,22 @@ module.exports=function export_tX({vX,_log}){
 
 
 
+	
 
-	function now(){
-		return formatDatetime();
-	}
-
+	/*
+	* @return string 	YYYY-MM-DD today
+	*/
 	function today(){
 		return formatDate();
 	}
 
+	/*
+	* @return string 	YYYY-MM-DD tomorrow
+	*/
 	function tomorrow(){
 		return formatDate(new Date(Date.now() + (24 * 60 * 60 * 1000)));
 	}
+
 
 	/*
 	* @return number 	Milliseconds from epoch to midnight this morning (past)
@@ -321,22 +350,29 @@ module.exports=function export_tX({vX,_log}){
 		}
 	}
 
-
-	function timerStart(){
-		if(typeof process)
-			return process.hrtime();
-		else
-			return window.performance.now()
+	/*
+	* Get a "discrete point in time", usually indexed to the start of the process. Ie. this CANNOT be translated into
+	* a calendar based point in time
+	*
+	* @retun BigInt
+	*/
+	function nanotime(){
+		try{
+			if(typeof process=='object' && process.hrtime)
+				return process.hrtime.bigint();
+			else
+				return BigInt(Math.round(window.performance.now()*1000000));
+	        	//Browsers usually only offer precision down to  5 µs or less to prevent various attacks...
+				//	https://developer.mozilla.org/en-US/docs/Web/API/Performance/now
+		}catch(err){
+			console.error(err);
+			return BigInt(Date.now()*1000000)
+		}
 	}
+	//timerStart is alias for nanotime ^
 
 	function timerStop(start,format){
-		var nano;
-		if(process){
-			let durr = process.hrtime(start);
-			nano=(durr[0]*1000000000)+durr[1];
-		}else{
-			nano=(window.performance.now()-start)*1000000;
-		}
+		return formatNano(nanotime()-start,format);
 	}
 
 	function formatNano(nano,format){

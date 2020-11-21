@@ -3,7 +3,7 @@
 /*
 * This module should only be required in NodeJS. If using in browser, please bundle with eg. Browserify
 *
-* This module exports an object with functions on it. If a global object is passed in, the 'util' 
+* This module exports an selfect with functions on it. If a global object is passed in, the 'util' 
 * property on it will be amended with the ones in this file.
 *
 * @param object globalObj 		Either window if in broswer (see bottom), or 'this', ie whatever scope
@@ -20,6 +20,7 @@ module.exports=function export_fX({_log,vX,aX}){
 		,once	
 		,renameFunction
 		,betterTimeout
+		,runInSequence
 
 	};
 
@@ -168,171 +169,384 @@ module.exports=function export_fX({_log,vX,aX}){
 		return onceCallback;
 	}
 
+	
+// backend
+// 	koa 
+// 	graph ql
+// 	typescript
+
+// frontend
+// 	react
+// 	t3
+
+
 
 
 	/*
+	* Create an object which allows timeouts to be set, cleared, postponed etc.
+	*
+	* @param function  callback    
+	* @param number    delay       
+	*
 	* @return object 	An object with methods that allow for manipulation of timeouts
-	* 	@prop function callback 	The passed in $callback (using getter, cannot be changed)
-	* 	@prop number delay 			The current delay (getter+setter)	
-	*	@method execute(this,args) 	Apply the callback immediately. If nothing is passed to it, run possible waiting action
-	* 	@method trigger(...args)	$callback after a timeout, ignoring repeated calls during wait
-	* 	@method block(...args)		$callback first, then ignore repeated calls during wait
+	* 	@prop function  callback 	The passed in $callback
+	* 	@prop number    delay 	    The current delay (getter+setter)	
+	*   @prop any       result 	    Results from last run of $callback
+	*   @prop object    count       Number of successfull runs, fails and ignored calls
+	*   @prop arguments args        The args that will passed to callback on expiration
+	* 	@method timeLeft            How long until the timer expires	
+	* 	@method trigger(...args)	call $callback after a timeout, ignoring repeated calls during wait
+	*   @method buffer(...args)     will add ...args to a buffer which will be passed to callback after timeout
+	* 	@method block(...args)		call $callback first, then ignore repeated calls during wait
 	*	@method clear()				clear any pending timeout (regardless if .timeout() or .block() set it)
-	*   @method debounce(...args) 	Clear pending timeout if it exists, start a new one regardless
+	*   @method debounce(...args) 	Shorthand for clear().trigger(), ie. delays execution (similar to .postpone except nothing needs to be pending)
 	* 	@method throttle(...args) 	Like block(), but the last missed call is run after the timeout
 	* 	@method postpone			If a timeout exists, change it's expiration, else do nothing
-	* 	@method expire 				If a timeout exists, clear it + run $callback, else do nothing
+	* 	@method expire 				If a timeout exists, clear it + run $callback now, else do nothing
 	*
 	*/
-	function betterTimeout(...args){
-		var delay=aX.getFirstOfType(args,'number');
-		var callback=aX.getFirstOfType(args,'function');
-		var callAsOverride=aX.getFirstOfType(args,'object');
+	function betterTimeout(){
 
-		vX.checkTypes(['function','number'],[callback,delay]);
+		var log=aX.getFirstOfType(arguments,'<BetterLog>')||_log;
+		var delay=aX.getFirstOfType(arguments,'number')||log.throwType('number',undefined);
+		var callback=aX.getFirstOfType(arguments,'function')||log.throwType('function',undefined);
 
 		//Define private props
-		var timerId, result, after;
+		var timerId, started, result, callAs, args, runs=0, ignored=0, fails=0,onError;
 		
-		var obj={};
-		Object.defineProperties(obj,{
-			callback:{get:()=>callback}
-			,delay:{get:()=>delay, set:(val)=>{if(typeof val=='number')delay=val}}
+		//Allow it to work with or without 'new'
+		var self=this instanceof betterTimeout ? this : {};
+
+		Object.defineProperties(self,{
+			callback:{enumerable:true,set:(cb)=>{if(typeof cb=='function')callback=cb},get:()=>callback}
+			,delay:{enumerable:true,get:()=>delay, set:(val)=>{if(typeof val=='number')delay=val}}
 			,result:{get:()=>result}
-			,ignored:{get:()=>timerId?after:undefined}
+			,count:{get:()=>{return {runs,fails,ignored};}}
+			,onError:{enumerable:true,set:(cb)=>{if(typeof cb=='function')onError=cb},get:()=>onError}
 		})
+		self.clear=clear;
+		self.trigger=self.runLater=trigger;//alias
+		self.buffer=buffer;
+		self.runFirstOnly=self.block=block; //alias
+		self.runLastOnly=self.debounce=debounce; //alias
+		self.runFirstAndLast=self.throttle=throttle; //alias
+		self.postpone=self.postpone;
+		self.expire=self.expire;
 
 
 		/*
-		* Call $callback and store the results. 
+		* Call $callback now, store results, delete stored args. 
 		*
-		* NOTE: if args aren't passed in here AND no calls to .timeout() or .block() have been ignored
-		*		then this function will do nothing
+		* @opt object 				overrideCallAs
+		* @opt array|<arguments> 	overrideArgs
 		*
-		* @opt object callAs
-		* @opt array args
-		*
-		* @return <obj>
+		* @return <self>
+		* @private
 		*/
-		obj.execute=function execute(callAs,args){
-			if(!args){
-				if(!after)
-					return;
-				args=after[1];
-				callAs=after[0];
+		function execute(overrideCallAs,overrideArgs){		
+			try{
+				callAs=overrideCallAs||callAs;
+				args=overrideArgs||args;
+				result=callback.apply(callAs,args);
+				runs++;
+			}catch(err){
+				if(onError)
+					onError(err);
+				else
+					_log.makeError(err,{callAs,args}).addHandling("Error in betterTimeout callback").exec();
+				result=undefined;
+				fails++;
 			}
-			result=callback.apply(callAsOverride||callAs,args);
-			after=undefined;
-			return obj;
+			args=undefined;
+			return self;
 		}
 
+		/*
+		* Set the timeout and when it started
+		* @param function cb    
+		* @return void
+		*/
+		function timeout(cb){
+			timerId=setTimeout(()=>{
+				timerId=undefined;
+				started=undefined;
+				cb();
+			},delay);
+			started=Date.now();
+		}
+		/*
+		* Remove the timeout and clear the id and start time
+		*/
+		function timein(){
+			clearTimeout(timerId);
+			timerId=undefined;
+			started=undefined;
+		}
 
 		/*
-		* Prevent any upcomming calls 
+		* @return number  How long until the timer ends
 		*/
-		obj.clear=function clear(){
-			if(timerId){
-				clearTimeout(timerId);
-				timerId=undefined;
+		self.timeLeft=function(){
+			if(started){
+				return (started+delay)-Date.now();
 			}
-			return obj;
+			return 0;
+		}
+
+		/*
+		* Prevent any pending timeout and remove any stored args
+		*
+		* @return boolean 	True if there was a timer running, else false
+		* @public
+		*/
+		function clear(){
+			if(timerId){
+				timein()
+				if(args){
+					ignored++; //since it was going to run, this turned into an ignored instance
+					args=undefined;
+				}
+				return true;
+			}
+			return false;
 		}
 
 
 		/*
 		* Trigger a timeout with the callback at the end, ignoring new calls during that time
+		*
+		* @return boolean 	True if this call triggered the callback, false if it will be ignored
+		* @public
 		*/
-		obj.trigger=function trigger(){
+		function trigger(){
+			//Only run if no other timer is currently running
 			if(!timerId){
-				//Store in .after so .expire and .delay can alter the timeout but use the same args
-				after=[this,arguments];
+				//Store...
+				args=arguments;
+				callAs=this;
 				
-				timerId=setTimeout(()=>{
-					clear().execute(this,arguments);
-				}, delay);
-			}
-			return obj;
-		}
+				//Set delay
+				timeout(execute);
 
-
-		/*
-		* Invert the workflow, ie. call first then block during a timeout. 
-		*/
-		obj.block=function block(){
-			if(!timerId){
-				//Set a blocking timeout...
-				timerId=setTimeout(clear,delay)
-
-				//...then execute
-				execute(this,arguments);
-			}
-			return obj;
-		}
-	
-		/*
-		* Discard any existing timeouts, then trigger a new one
-		*/
-		obj.debounce=function debounce(){
-			return clear().trigger.apply(this,arguments);
-		}
-
-		/*
-		* Same as .block but the last call during the timeout is run directly after. This is good when throttleing inputs
-		* so the last/freshest data is received
-		*/
-		obj.throttle=function throttle(){
-			if(!timerId){
-				//Set a blocking timeout, but at the end of it we check if anything has been set on .after
-				//in which case the callback get's run again...
-				timerId=setTimeout(()=>{
-					timerId=undefined;
-					execute()
-				},delay);
-
-				//...but first we run it right away
-				apply(this,arguments);
-				  //^this also undefines .after
+				return true;
 			}else{
-
-				//Store missed calls in .after so the last one can be used by apply() when the timer expires ^
-				after=[this,arguments];
+				ignored++;
+				return false;
 			}
-			return obj;
 		}
 
 
-
-
+		/*
+		* All calls get stored until end when callback is called with array
+		*
+		* @return number   The number of items in the buffer
+		* @public
+		*/
+		function buffer(){
+			//Make sure we have an array which holds all args until the timer times out
+			if(!args){
+				if(timerId){
+					log.warn("A blocking timeout existed when buffer() was called, clearing it now");
+					clear();
+				} 
+				args=[arguments];
+			}else if(!Array.isArray(args)) 
+				//Implies we're already waiting for execution which wasn't called with .buffer()... no matter, it is now
+				args=[arguments,args];
+			else
+				args.unshift(arguments);
+			
+			//If not already triggered... trigger
+			if(!timerId){
+				callAs=this;
+				timeout(execute);
+			}
+			
+			return args.length;
+		}
 
 		/*
-		* Move a current timeout further into the future. This works for any method
+		* Only first call runs
+		*
+		* @return boolean 	True if this call triggered the callback, false if it will be ignored
+		* @public
 		*/
-		obj.postpone=function postpone(){
+		function block(){
+			if(!timerId){
+				//Set a blocking timeout then execute right away
+				timeout(clear)
+				execute(this,arguments);
+				return true;
+			}else{
+				ignored++;
+				return false;
+			}
+		}
+	
+		/*
+		* Only last call runs
+		*
+		* @return boolean 	True if it replaced something, else false.
+		*/
+		function debounce(){
+			var cleared=clear(); //if we actually cleared anything it will be counted as ignored
+			trigger.apply(this,arguments);
+			return cleared;
+		}
+
+		/*
+		* First and last calls run
+		*
+		* @return void
+		*/
+		function throttle(){
+			if(!timerId){
+				//Set a timeout that checks if args have been stored while it's been running
+				timeout(()=>{
+					if(args){
+						ignored--; //we counted it as ignored vv, but it's no longer ignored
+						execute();
+					}
+				});
+
+				//Also execute right now
+				execute(this,arguments);
+				  //^this also undefines 'args'
+			}else{
+				ignored++; //count all as ignored until ^ runs and takes it back
+
+				//Store all missed calls so they get run by ^
+				callAs=this;
+				args=arguments
+			}
+
+			return;
+		}
+
+		/*
+		* Move current timeout into the future. This works for any method
+		*
+		* @return boolean 	True if a timeout existed and was moved, else false
+		*/
+		function postpone(){
+			//If a timer was running...
 			if(timerId){
-				clear();
-				if(after){
-					//regardless which method set $after, now we want to execute it after a delay
-					trigger.apply(after[0],after[1]);
-				}
-			};
-			return obj;
+				//...remove it...
+				timein();
+				
+				//...and set a new one that does what the existing one was doing
+				if(args)
+					trigger.apply(callAs,args);
+				else
+					timeout(clear);
+
+				return true;
+			}
+			return false;
 		}
 	
 
 		/*
-		* Expire a timeout now and run $callback if .after is set. This works after any method
+		* Run pending call now. This works after any method
+		* 
+		* @return string|boolean 	'executed' or 'cleared' if a timeout existed, else false
 		*/
-		obj.expire=function expire(){
+		function expire(){
+			//If a timer is running...
 			if(timerId){
-				clear().execute();
+				//...remove it...
+				timein();
+
+				//...and if an execution was pending run it now
+				if(args){
+					execute();
+					return 'executed';
+				}
+
+				return 'cleared';
 			}
-			return obj;
+			return false;
 		}
 		
+
+		return self;
 	}
 
 
 
+
+	/*
+	* Limit the number of times a callback can be called within a period, either ignoring or calling a 
+	* different callback after the timeout
+	*
+	* NOTE: The period window is "moving", eg: (foo,2,1000,bar) then call at times:
+	* 	t=0   --> foo()
+	*   t=800 --> foo()  with this call we reach the limit...
+	*   t=900 --> bar()  ...which is why this runs
+	*   t=1100--> foo()  we are again under the limit
+	*   t=1200--> bar()  here we are again over the limit since >=2 have run in the last 1000, @ 800 && 1100...
+	*   t=1801--> foo()  ...not until now are we free to run another foo
+	*
+	*
+	* @param function callback 			
+	* @param number   callsPerPeriod 	Default 1 time/period. 
+	* @param number   periodLength 		Default 1 second
+	* @opt function   onRateLimit 		Secondary callback which gets called when rate limit is reached
+	*
+	* @return function 		A proxy function with the limit in place
+	*/
+	function rateLimit(callback,callsPerPeriod=1,periodLength=1000, onRateLimit=null){
+		vX.checkTypes(['function','number','number',['function','undefined']]
+			,[callback,callsPerPeriod,periodLength,onRateLimit]);
+		
+		var counter=0;
+
+		function rateLimitedCallback(){
+		    if(counter>=callsPerSecond){
+		    	//These calls are usually ignored, unless we want a secondary callback to eg. altert something...
+		    	if(onRateLimit)
+		    		onRateLimit.apply(this,arguments);
+		    }else{
+		    	//First increment the counter and set a timeout to de-increment it (since the callback may
+		    	//run for a long time we do this first)...
+		        counter++
+		        setTimeout(()=>counter--,periodLength);
+
+		        //...then run the callback
+		        callback.apply(this,arguments);
+		    }
+
+		}
+
+		if(callback.name)
+			renameFunction(rateLimitedCallback,callback.name+'_ratelimit');
+
+		return rateLimitedCallback;
+	}
+
+
+
+	/*
+	* Run functions in seqence, passing the return from one to the next like a promise chain. If any return promises
+	* then this whole function will return a promise, else it will return the value returned by the last function
+	*
+	* NOTE: Any error thrown will in a func will prevent any other funcs from running
+	*
+	* @param array funcs
+	*
+	* @return any|Promise
+	*/
+	function runInSequence(funcs){
+		vX.checkTypedArray(funcs,'function');
+		var result;
+		for(let func of funcs){
+			if(vX.varType(result)=='promise')
+				result=result.then(func); //the first time this happens $result will turn into, and remain, a promise
+			else
+				result=func(result);
+		}
+		return result;
+	}
 
 
 	return _exports;

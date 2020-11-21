@@ -14,14 +14,20 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 
 
 	const os=require('os');
+	/**
+	* @var object   dns    The native dns class, made available on the exported object
+	* @public
+	*/
+	const dns=require('dns');
+
 	const log=(typeof BetterLog=='function' ? new BetterLog('netX') :BetterLog);
 
 
 	//returned at bottom
 	var netX={
-		
+		dns
 
-		'iw_listInterfaces':iw_listInterfaces
+		,'iw_listInterfaces':iw_listInterfaces
 		,'iw_getIfaceStatus':iw_getIfaceStatus
 		,'iw_validateIface':iw_validateIface
 		,'iw_rfkillList':iw_rfkillList
@@ -71,6 +77,10 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 		,'validateIp':validateIp
 		,'listeningPorts':listeningPorts
 		,ping
+		,pingSync
+		,checkInternetConnection
+		,dnsLookup
+		,internetResourceCheck
 
 			
 	}
@@ -431,7 +441,8 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 						info.wps=str.match(/^\s+WPS:\s+\*/m) ? true : false;
 
 					}catch(err){
-						console.log(err);
+						if(err)
+							console.error(err);
 					}
 
 					data.push(info);
@@ -546,7 +557,7 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 		.catch(err=>log.makeError("Could not find stored network: ",ssidOrConfPath,err).reject("NO_EXIST"))
 		.then(_path=>{
 			path=_path;
-			return fsX.readFilePromise(_path)
+			return fsX.readFileSyncPromise(_path)
 		})
 		.then(str=>{
 			//Look for and grab what's between the network brackets
@@ -877,7 +888,7 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 		}else{
 			//These are the networks in the conf file
 			log.trace("Getting networks in "+ws_mainCfgPath);
-			return fsX.readFilePromise(ws_mainCfgPath)
+			return fsX.readFileSyncPromise(ws_mainCfgPath)
 				.then(str=>{
 					var regex = /^\s*ssid=(.+)$/gm; //get all lines with ssid that aren't commented
 					var m, list=[];
@@ -917,7 +928,7 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 		return fsX.prepareWritableFile(ws_mainCfgPath,true,600) //overwrite and make readable only to root
 			.then(()=>{
 				if(fsX.exists(ws_tempCfgPath,'file')){
-					return fsX.readFilePromise(ws_tempCfgPath)
+					return fsX.readFileSyncPromise(ws_tempCfgPath)
 						.then(str=>{
 							log.debug("Using template file:\n\t",str);
 							conf=str
@@ -930,7 +941,7 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 			})
 			.then(()=>{
 				return cX.groupPromises(
-					ssidList.map(ssid=>fsX.readFilePromise(`${ws_netCfgPath}${ssid}.conf`))
+					ssidList.map(ssid=>fsX.readFileSyncPromise(`${ws_netCfgPath}${ssid}.conf`))
 					,log
 				).promise.then(
 					obj=>obj.resolved
@@ -1298,7 +1309,7 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 	*/
 	function ap_getConf(which){
 		var path=ap_getPath(which)
-		return fsX.readFilePromise(path)
+		return fsX.readFileSyncPromise(path)
 			.then(str=>{
 				var conf=parseConfStr(str)
 				log.trace("Read conf "+path,conf);
@@ -1311,7 +1322,7 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 	*/
 	function ap_setConf(which,conf){
 		var path=ap_getPath(which)
-		return fsX.readFilePromise(path) //read
+		return fsX.readFileSyncPromise(path) //read
 			.then(str=>{
 				var key;
 				for(key in conf){
@@ -1956,27 +1967,102 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 		Object.defineProperty(this,'debug',{value:(_log ? _log.debug:function noLog(){})});
 
 		Object.defineProperty(this,'log',{value:_log||log})
-
+		
 		//Inherit from BetterEvents and set failed emits to log to our log
-		var bufferDelay=cX.getFirstOfType(args,'number',true)||100;
-		BetterEvents.call(this,{bufferDelay});
+		BetterEvents.call(this);
 		Object.defineProperty(this._betterEvents,'onerror',{value:this.log.error});
 		
-		
-		//Allow changing delay in case there is more noise on the network
-		Object.defineProperty(this,'bufferDelay',{
-			get:()=>this._betterEvents.options.bufferDelay
-			,set:(delay)=>{
-				if(typeof delay=='number')
-					this._betterEvents.options.bufferDelay=delay 
-				return this._betterEvents.options.bufferDelay
+
+		//Define the callback which runs with a buffer of lines having been written to stdout (but delayed/grouped using a buffer vv)
+		var onMonitorBuffer=(buffer)=>{ //format of buffer: {ip:[line4,line2,line1],link:[line3]}
+			try{
+				try{
+					var cidrs=getIpAddresses('cidr', this.iface)
+				}catch(err){
+					this.log.warn('Problem getting IP addresses, assuming none are set',err);
+				}
+				cidrs=cidrs||[];
+
+				//Check for any added or deleted
+				cidrs.forEach(cidr=>{
+					if(!this.addresses.includes(cidr)){
+						this.debug(`${this.iface} ip added:`,cidr);
+						this.emit('ipadd',cidr);
+					}
+				})
+				this.addresses.forEach(cidr=>{
+					if(!cidrs.includes(cidr)){
+						this.debug(`${this.iface} ip deleted:`,cidr);
+						this.emit('ipdel',cidr);
+					}
+				})
+
+				//Replace old for next time we check
+				this.addresses=cidrs;
+
+
+				//We want 'disconnect' to emit before link/up and 'connect' after, so store changes and emit at bottom
+				var changes=[];
+
+				//If any link lines have been caught, parse the last one...
+				if(buffer && buffer.link && buffer.link[0]){
+					var {up,link}=parseIpLinkOutput(buffer.link[0]);
+					
+					if(this.link!=link){
+						changes.push([link?'linkup':'linkdn'])
+						this.link=link;
+					}
+
+					if(this.up!=up){
+						if(up)
+							changes.unshift(['ifaceup']) //before linkup	
+						else
+							changes.push(['ifacedn']) //after linkdown
+						this.up=up;
+					}
+				}
+
+
+				// Being connected we base on interface being up and having at least one ip. It should also be based on link
+				// being up, but it seems (especially with wifi) that link goes down temporarily quite regularly so for the
+			    // purposes of taking action in a node app we'll consider that noise and ignore it (the link state is still 
+			    // stored and the event emitted, so you can check/listen for that manually)
+			    var connected=(this.up==true && this.addresses.length>0);
+			    if(this.connected!=connected){
+			    	this.connected=connected;
+			    	if(connected){
+			    		connected='connect';
+			    		changes.push(['connect',this.addresses]); //emits last
+			    	}else{
+			    		connected='disconnect'
+			    		changes.unshift(['disconnect']); //emits first
+			    	}
+			    }else{
+			    	connected=undefined;
+			    }
+
+			    //Now emit the changes
+			    changes.forEach(args=>{
+			    	this.debug(`${this.iface} ${args.join(',')}`);
+			    	this.emit.apply(this,args);
+			   	})
+
+			   	//If there are any changes, also emit a 'status' event
+			   	if(changes.length)
+			   		this.emit('status',this,changes,connected);
+
+			}catch(err){
+				this.log.error(err);
 			}
-		});
+		};
+		
+		//Use the above callback and create a buffer 
+		Object.defineProperty(this,'buffer',{value:cX.keyedBuffer(onMonitorBuffer,cX.getFirstOfType(args,'number','extract')||100)})
 
 
 		//One thing prevelent to most wifi networks is unstable connections leading to disconnect/connect
 		//events to the same network firing within a second of each other. The length of these 'blips'
-		//will vary with network and physical location of host, so settings a static bufferDelay may not always
+		//will vary with network and physical location of host, so settings a static buffer delay may not always
 		//be good (enough), therefore we can try to learn the length and adjust accordingly
 		if(cX.extractItem(args,'dynamicNoiseFilter')){
 			this.log.info("Got flag, using dynamic noise filter...")
@@ -2015,10 +2101,14 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 				// t=390 monitor spits out connect, the other event of interest
 				// t=680 connect is emitted and delay calulated to 680-320=360 when the real delay was 390-50=340
 				//so we adjust 320=>360.
-				this.log.note(`dynamicNoiseFilter, increasing delay ${this.bufferDelay} => ${delay} ms`)
-				this.bufferDelay=delay; //uses setter ^^
+				this.log.note(`dynamicNoiseFilter, increasing delay ${this.buffer.delay} => ${delay} ms`)
+				this.buffer.delay=delay; //uses setter ^^
 			})
 		}
+
+
+
+
 
 		//Now start the monitor, optionally with a passed in child process
 		let _iface=cX.getFirstOfType(args,'string','extract');
@@ -2100,11 +2190,11 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 					case 'R': //route
 					case 'A': //address
 						// this.log.debug("QUEING")
-						this.bufferEvent('ip'); //don't store the line, it's easier to getIpAddresses() vv
+						this.buffer.buffer('ip'); //don't store the line, it's easier to getIpAddresses() vv
 						break;
 					case 'L': //link
 						// this.log.trace(line);
-						this.bufferEvent('link',line);
+						this.buffer.buffer('link',line);
 						break;
 					
 					// default:
@@ -2112,91 +2202,6 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 
 				}
 			})
-
-
-			//Regardless what triggered the buffer ^, check everything
-			var onMonitorBuffer=(obj)=>{
-				try{
-					try{
-						var cidrs=getIpAddresses('cidr', this.iface)
-					}catch(err){
-						this.log.warn('Problem getting IP addresses, assuming none are set',err);
-					}
-					cidrs=cidrs||[];
-
-					//Check for any added or deleted
-					cidrs.forEach(cidr=>{
-						if(!this.addresses.includes(cidr)){
-							this.debug(`${this.iface} ip added:`,cidr);
-							this.emit('ipadd',cidr);
-						}
-					})
-					this.addresses.forEach(cidr=>{
-						if(!cidrs.includes(cidr)){
-							this.debug(`${this.iface} ip deleted:`,cidr);
-							this.emit('ipdel',cidr);
-						}
-					})
-
-					//Replace old for next time we check
-					this.addresses=cidrs;
-
-
-					//We want 'disconnect' to emit before link/up and 'connect' after, so store changes and emit at bottom
-					var changes=[];
-
-					//If any link lines have been caught, parse the last one...
-					if(obj && obj.link && obj.link[0]){
-						var {up,link}=parseIpLinkOutput(obj.link[0]);
-						
-						if(this.link!=link){
-							changes.push([link?'linkup':'linkdn'])
-							this.link=link;
-						}
-
-						if(this.up!=up){
-							if(up)
-								changes.unshift(['ifaceup']) //before linkup	
-							else
-								changes.push(['ifacedn']) //after linkdown
-							this.up=up;
-						}
-					}
-
-
-					// Being connected we base on interface being up and having at least one ip. It should also be based on link
-					// being up, but it seems (especially with wifi) that link goes down temporarily quite regularly so for the
-				    // purposes of taking action in a node app we'll consider that noise and ignore it (the link state is still 
-				    // stored and the event emitted, so you can check/listen for that manually)
-				    var connected=(this.up==true && this.addresses.length>0);
-				    if(this.connected!=connected){
-				    	this.connected=connected;
-				    	if(connected){
-				    		connected='connect';
-				    		changes.push(['connect',this.addresses]); //emits last
-				    	}else{
-				    		connected='disconnect'
-				    		changes.unshift(['disconnect']); //emits first
-				    	}
-				    }else{
-				    	connected=undefined;
-				    }
-
-				    //Now emit the changes
-				    changes.forEach(args=>{
-				    	this.debug(`${this.iface} ${args.join(',')}`);
-				    	this.emit.apply(this,args);
-				   	})
-
-				   	//If there are any changes, also emit a 'status' event
-				   	if(changes.length)
-				   		this.emit('status',this,changes,connected);
-
-				}catch(err){
-					this.log.error(err);
-				}
-			};
-			this.on('_buffer',onMonitorBuffer)
 
 		}catch(err){
 			this.log.error("Problem starting monitor:",err);
@@ -2458,10 +2463,10 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 			if(arr.length==4)
 				return arr.every(block=>Number(block)>=0 && Number(block)<=255)
 		}else if(thrw)
-			log.makeError('Expected string ip, got: '+log.logVar(ip)).throw('TypeError');
+			log.throwCode('TypeError','Expected string ip, got: '+log.logVar(ip));
 		
 		if(thrw)
-			log.makeError('Not valid IPv4: '+log.logVar(ip)).throw('EFAULT');
+			log.throwCode('EFAULT','Not valid IPv4: '+log.logVar(ip));
 		return false;
 	}
 
@@ -2541,7 +2546,7 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 	*/
 	function ping(ip){
 		try{validateIp(ip,true)}catch(err){return err.reject()}
-		return cX.execFileInPromise('ping',[ip,'-c',1]).then(()=>true,()=>false);
+		return cpX.execFileInPromise('ping',[ip,'-c',1]).then(()=>true,()=>false);
 	}
 
 
@@ -2554,6 +2559,72 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 			return false;
 		}
 	}
+
+
+	function checkInternetConnection(){
+		return ping('8.8.8.8')
+			.then(success=>{
+				if(!success)
+					log.throwCode('ENETDOWN','Cannot reach internet (cannot ping Google DNS @ 8.8.8.8)')
+			})
+	}
+
+	function dnsLookup(hostname,options){
+		var {promise,callback}=cX.exposedPromise()
+		dns.lookup(hostname,options,callback);
+		return promise.catch(function resolveHostname_failed(err){
+			return log.makeError('Failed to DNS resolve: ',hostname,err).reject(); //ENOTFOUND
+			//NOTE: it uses same err code for everything it seems, even filesystem stuff like not finding a file descriptor
+		});
+	}
+
+
+	/*
+	* Perform step by step checks to see if a remote host is up
+	*
+	* @return Promise(<ble>|<ble>)
+	* @not_logged
+	*/
+	function internetResourceCheck(host,port){
+		var ble=log.makeEntry('debug',`${host}:${port}`);
+		//TODO: check interface is up and has ip...
+		return checkInternetConnection()
+			.then(()=>{
+				ble.addHandling('Internet is reachable');
+				if(!validateIp(host))
+					return dnsLookup(host).then(ip=>{
+						ble.addHandling(`Resolved ${host} => ${ip}`);
+						return host=ip;
+					})
+				else{
+					ble.addHandling(`Valid IP: ${host}`);
+					return host;				
+				}
+			})
+			//NOTE: host is now the ip
+			.then(ping) //ping the server itself
+			.then(reachable=>{
+				if(reachable)
+					ble.addHandling('The host server is reachable')
+				else
+					log.throwCode('ESRCH',`Could NOT reach the host server`);
+				return checkPortOpen(host,port);
+
+			})
+			.then(open=>{
+				if(open){
+					return ble.addHandling(`Port ${port} is open`);
+				}else{
+					log.throwCode('EACCES',`Port ${port} is NOT open`);
+				}
+					
+			})
+			.catch(err=>ble.changeLvl('error').prepend('Cannot reach').setBubble(err).reject())
+	}
+
+
+
+
 
 
 	return netX;

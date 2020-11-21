@@ -48,86 +48,201 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	var _exports={
 		'native':fs
 		,'path':_p
-		,'existsSync':existsSync
-		,'exists':existsSync //alias
-		,'existsPromise':existsPromise
-		,'which':which
-		,'getRandomFileName':getRandomFileName
-		,'whoami':whoami
-		,'who':whoami
-		,'inodeType':inodeType
-		,'modeToPerm':modeToPerm
-		,'statSync':statSync
-		,'stat':stat
-		,'findParentSync':findParentSync
-		,'findParentPromise':findParentPromise
-		,'accessPromise':accessPromise
-		,'checkReadWrite':checkReadWrite
-		,'accessSync':accessSync
-		,'resolvePath':resolvePath
-		,'cleanFilename':cleanFilename
-		,'flushFifo':flushFifo
-		,'createFifo':createFifo
-		,'mkdir':mkdir
-		,'prepareWritableFile':prepareWritableFile
-		,'writeFilePromise':writeFilePromise
-		,'readFilePromise':readFilePromise
-		,'deleteFilePromise':deleteFilePromise
-		,deletePromise
-		,'readFile':readFile
-		,'getJsonFromFile':getJsonFromFile
-		,'ls':ls
-		,'lh':lh
-		,isFolderEmpty
-		,'find':find
-		,'fileStatus':fileStatus
-		,'deleteIfEmpty':deleteIfEmpty
+
+		//Clean and resolve
+		,resolvePath
+		,cleanFilename
+		
+		//Exists and Access
+		,existsSync
+		,'exists':existsSync //alias for sync version
+		,existsPromise
+		,accessPromise
+		,accessSync
+		,checkReadWrite
+
+		//Status and File descriptors
+		,fileStatus
 		,'fileOpen':fileOpen
 		,'checkOpenFDs':checkOpenFDs
-		,'StoredItem':StoredItem
-		,'createStoredSmarty':createStoredSmarty
-		,storeSmarty
-		,'folderSize':folderSize
-		,'fileExtType':fileExtType
-		,'touch':touch
-		,'touchPromise':touchPromise
-		,'chmodPromise':chmodPromise
+
+		//Info
+		,whoami
+		,'who':whoami //alias ^
+		,inodeType
+		,modeToPerm
+		,statSync
+		,stat
+		,'statPromise':stat //alias^
+		,folderSize
+		,fileExtType
+
+		//Read
+		,readFilePromise
+		,readFileSync
+
+		
+		//Write
+		,mkdir
+		,prepareWritableFile
+		,writeFileSync
+		,'writeFile':writeFileSync //alias for sync version
+		,writeFilePromise
+		,appendFilePromise
+		,touchPromise
+		,touch
+		,chmodPromise
 		,move
+
+		//Delete
+		,deleteFilePromise
+		,deleteFileSync
+		,deleteFolderPromise
+		,deleteFileSync
+
+		//Fifo
+		,flushFifo
+		,createFifo
+
+		//List and find
+		,ls
+		,lh
+		,isFolderEmpty
+		,find
+		,findParentSync
+		,findParentPromise
+		
+		//Misc
+		,'StoredItem':StoredItem
+		,'getRandomFileName':getRandomFileName
+		,'which':which
+
 
 	}
 
 
 
 	try{
-		var fileExtensions=getJsonFromFile(__dirname+'/extensions.json')
+		var fileExtensions=cX.jsonParse(readFileSync(__dirname+'/extensions.json'),'object');
 	}catch(err){
-		log.error("Failed to read file extensions json:",err);
-		log.warn("fileExtType() will never find a match now")
+		log.warn("Failed to read file extensions json. fileExtType() will never find a match now.",err);
 		fileExtensions={};
 	}
 	
 
 
 
+/************************ CLEAN & RESOLVE ****************************/
+
+	/*
+	* Make sure a string is a path, and if it's relative, append the working dir or an optionally passed in one
+	*
+	* @param string path 	    The path to check
+	* @opt string cwd 			If passed AND $path is relative, then this will be used as cwd instead of cwd of process
+	* @opt string cwdAlt 		If 'relative' flag is passed and we don't want paths to be relative to cwdOrig
+	* @opt flag 'make-relative' If passed, paths will be made relative to $cwd or $cwdAlt		
+	* @opt flag 'no-undefined'  If passed, if the path includes the STRING 'undefined' ANYWHERE an error will be thrown
+	*
+	* @throws <BLE TypeError> 	If $path is not a string
+	*
+	* @return string 			The resolved path
+	*/
+	
+	function resolvePath(path,...options){
+		cX.checkType('string',path);
+
+		//Get options 
+		var noUndefined=cX.extractItem(options,'no-undefined')
+			,makeRelative=cX.extractItem(options,'make-relative')
+			,cwd=cX.getFirstOfType(options,'string')||process.cwd()
+			,cwdAlt=cX.getFirstOfType(options,'string')||cwd
+		;
+		
+		//If the path matches an already cleaned one, and no options were passed in, it's already been cleaned...
+		if(!options.length && cleaned.hasOwnProperty(path))
+			return path;
+
+		//Since there is a larger risk that someone built a filepath without realizing that one of the
+		//components was undefined (which turned into the string 'undefined' and got included as a dir 
+		//or file), than that something is actually named 'undefined', we throw unless explicitly told not to
+		if(noUndefined && path.includes('undefined'))
+			log.makeError("The path included substring 'undefined':",path)
+				.addHandling("If 'undefined' should be allowed, please call this function with arg #2==true.")
+				.throw();
+
+		//Resolve paths if they're relative
+		if(!_p.isAbsolute(path))
+			path=_p.resolve(cwd,path);
+		
+		//Normalize...
+		path= _p.normalize(path)
+
+		//And if we want relative paths, make them so again (possibly relative to something else)
+		if(makeRelative)
+			path='./'+_p.relative(cwdAlt,path);
+
+		//2019-12-09: Add to object so we don't clean string again. This will speed things up a little on 
+		// 			  expense of memory, but more importantly this allows arg #2 to be enacted once and then
+		//			  not ignored in future calls
+		cleaned[path]=true;
+
+		return path
+	}
+
+
+
+
+
+
+	/*
+	* Clean a filename from any bad characters so it can be written to filesystem without quotes
+	*
+	* @param string name 	
+	*
+	* @throws TypeError 	If name is not a string
+	* @return string 		A clean filename
+	*/
+	
+	function cleanFilename(name){
+		cX.checkType('string',name); //throws on error
+		return name.replace(/[^a-z0-9\-]/gi, '_').replace(/_{2,}/g, '_');
+	}
+
+
+
+/************************** clean & resolve end ****************************/
+
+
+
+
+
+
+
+
+
+
+
+
+
+/********************************** EXISTS / ACCESS *******************************/
 
 	/*
 	* Check if an inode exists without throwing error
 	*
-	* @param string path
-	* @param string type 		Expected type of path. @see inodeType()
-	* @param bool thrw 			If true this function will throw if path doesn't exist 
+	* @param string path 		@see _existsPre()
+	* @opt string|array type 	@see _existsPre()
+	* @opt string throwOn 	    @see _existsCallback()
 	*
-	* @throws <ble TypeError> 	if $path not string (throws even if $thrw is false)
-	* @throws <ble ENOENT>|<ble EACCESS>|<ble ETYPE>|<ble BUGBUG> 	@see _existsCallback()
+	* @throws <BLE TypeError> 							@see _existsPre() (throws even if $thrw is false)
+	* @throws <ble EACCESS>|<ble ETYPE>|<ble BUGBUG> 	@see _existsCallback()
 	*
 	* @return undefined|str 	A normalized path if it exists, else undefined
 	* @access public/exported
 	* @sync
 	* @not_logged
 	*/
-	function existsSync(path,type,thrw=false){
-		path=resolvePath(path); //throws error on bad value
-
+	function existsSync(path,type=undefined,throwOn=undefined){
+		path=_existsPre(path,type);
 		var err;
 		try{
 			fs.accessSync(path); //throws error if not exists 
@@ -138,22 +253,22 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	}
 
 	/*
-	* @param string path
-	* @param string type 		Expected type of path. @see inodeType()
-	* @param bool rej 			If true this function will reject if path doesn't exist 
+	* @param string path 		@see _existsPre()
+	* @opt string|array type 	@see _existsPre()
+	* @opt string rejOn 	    @see _existsCallback()
 	*
-	* @throws <BLE TypeError> 	if $path not string
-	* @throws <ble ENOENT>|<ble EACCESS>|<ble ETYPE>|<ble BUGBUG> 	@see _existsCallback()
 	*
-	* @return Promise(str,BLE) 	Same as existsSync() but this rejects instead of throwing
+	* @return Promise
+	* @resolve undefined|str 							A normalized path if it exists, else undefined
+	* @reject <BLE TypeError> 							@see _existsPre() (throws even if $rej is false)
+	* @reject <ble EACCESS>|<ble ETYPE>|<ble BUGBUG> 	@see _existsCallback()
 	*/
-	function existsPromise(path,type,rej=false){
+	function existsPromise(path,type=undefined,rejOn=undefined){
 		return new Promise((resolve,reject)=>{
-			path=resolvePath(path); //throws error on bad value
-
+			path=_existsPre(path,type);
 			fs.access(path,function existsPromise_accessCallback(err){
 				try{
-					return resolve(_existsCallback(err,type,path,rej)); 
+					return resolve(_existsCallback(err,type,path,rejOn)); 
 				}catch(err){
 					return reject(err);
 				}
@@ -162,29 +277,49 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	}
 
 	/*
+	* Common validation func for exists ^
+	*
+	* @param string path
+	* @param string|array type	Expected type of path. @see inodeType()
+	*
+	* @throws <ble TypeError> 	if $path not string (throws even if $thrw is false)
+	*
+	* @return string 	The cleaned up path
+	*/
+	function _existsPre(path,type){
+		path=resolvePath(path); //throws error on bad value
+		cX.checkType(['string','array','undefined'],type);
+		return path
+	}
+
+	/*
 	* @param error err	
 	* @param string path
-	* @param string type 			Expected type of path. @see inodeType(). This can cause ETYPE even if $thrw==false
-	* @param bool thrw 				If true this function will throw if path doesn't exist 
+	* @param string|array type		Expected type of path. @see inodeType(). This can cause ETYPE even if $thrw==false
+	* @param bool throwOn			'EEXISTS' or 'ENOTFOUND'. Causes this error to be thrown if such is the case
 	*
-	* @throws <ble ENOENT> 			If WE KNOW the path doesn't exist (and $thrw==true) (could be because ENOTDIR along path)
+	* @throws <ble EEXISTS>	     	The inode exists. Only if $throwOn==EEXIST
+	* @throws <ble ENOTFOUND>		If WE KNOW the path doesn't exist (and $thrw==true) (could be because ENOTDIR along path). Only if $throwOn==ENOTFOUND
 	* @throws <ble EACCESS>		 	If we CAN'T KNOW if the path exists because we don't have access to the entire path
 	* @throws <ble ETYPE>		 	If $type is passed and inode is not the correct type
 	* @throws <ble BUGBUG>
 	*
 	* @return undefined|str 		A normalized path if it exists, else undefined or @see $thrw
 	*/
-	function _existsCallback(err, type, path,thrw=false){
+	function _existsCallback(err, type, path,throwOn){
 		try{
 			if(err){
-				var msg=`Cannot determine if ${type ? type :'path'} exists (${path}),`;
+				throwOn=throwOn.toLowerCase();
 				switch(err.code){
 					case 'ENOTDIR':
-						if(thrw){
+						if(throwOn.endsWith('notfound')){
 							//Trigger (but don't wait for) a check of where along the path the problem lay, logging when done...
 							findParentPromise(path).then(p=>{
-								let t=inodeType(p);
-								log.highlight(`existsSync():${path} doesnt exist because ${p} is a ${t}`);
+								let t=inodeType(p), parentIs=`${p} is a ${t}`;
+								if(notfound.printed) //created vv
+									log.makeEntry('warn',`${path} doesnt exist because ${parentIs}`).addHandling("Pertains to previously logged error").exec();
+								else
+									notfound.append(parentIs);
 							});
 						}
 						
@@ -193,31 +328,38 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 
 
 					case 'ENOENT': //parent dir exists and is readable, so we know inode doesn't exist
-						if(thrw){
+						if(throwOn.endsWith('notfound')){
 							// log.makeError(`${path} doesn't exist.`).throw(err.code);
-							var ble=log.makeError('No such file or directory:',path).setCode('ENOENT');
+							var notfound=log.makeError('No such file or directory:',path).setCode('ENOTFOUND');
 							if(err.code=='ENOTDIR'){
-								err=log.makeError(err).addHandling("See seperate entry below for where the path broke");
-								ble.extra.push(err);
+								notfound.setBubble(err).addHandling("See seperate entry below for where the path broke");
 							}
-							ble.throw();
+							notfound.throw();
 						}else{
 							return false;
 						}
 
 					case 'EACCES': //something along path is not readable, so we don't know status of inode
-						log.makeError(msg,"something along the way is not readable",err).setCode('').throw();
+						log.makeError(`Cannot determine if ${type ? type :'path'} exists (${path}), something along the way is not readable`,err).setCode('').throw();
 
 					default:
-						log.throw('Please handle code:',err.code,msg,err).setCode('BUGBUG').exec().throw();
+						log.makeError('Please handle code:',err.code,err).setCode('BUGBUG').exec().throw();
 				}
+			}else if(throwOn.endsWith('exists')){
+				log.throwCode("EEXISTS","The inode exists: "+path);
 			}
 
 			//If arg#2 is passed, make sure the inode is the correct type, else throw
-			if(typeof type=='string'){
+			if(type){
 				let t=inodeType(path);
-				if(t!=type)
-					log.makeError(path+" is a '"+t+"', not a "+type).setCode('ETYPE').throw();	
+				switch(cX.checkType(['string','array'],type)){
+					case 'string':
+
+					case 'array':
+
+				}
+				if((typeof type=='string' && t!=type)||(Array.isArray(type) && !type.includes(t)))
+					log.throwCode('ETYPE',`${path} is a '${t}', not a ${type}`);	
 			}
 			
 			return _p.normalize(path);
@@ -233,39 +375,372 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	}
 
 
+
+
+
+
 	/*
-	* Check if a command is in the path
+	* Wrap fs.access in a promise
 	*
-	* @return string|false 
-	* @sync
+	* @param string path
+	* @param string mode 		One of F(exists), R(readable), W(writable), X(execute)
+	*
+	* @return Promise(null,string) 		Rejects with error code.
 	*/
-	function which(cmd){
+	function accessPromise(path, mode='F'){
+		
+		return new Promise((resolve,reject)=>{
+			// log.info("Checking "+type+" for: ",resolvePath(path));
+			fs.access(resolvePath(path), fs.constants[mode.toUpperCase()+'_OK'], err=>{
+				err?reject(err.code):resolve(null);
+			});
+		});
+		
+	}
+
+	/*
+	* Wrap fs.access in try
+	*
+	* @param string path 	A directory or file path
+	* @param string type 	One of:
+	*							F - Check if path exists
+	*							R - Check if path is readable for current user
+	*							W - Check if path is writable for current user
+	*							X - Check if path is executable for current user
+	*
+	* @return null|string 	Null if test succeeds, error code if it fails
+	*/
+	function accessSync(path, type='F'){
 		try{
-			return {stdout}=cpX.execFileSync('which',cmd);
-		}catch(e){
-			return false;
+			fs.accessSync(resolvePath(path), fs.constants[type.toUpperCase()+'_OK']); //throws on fail, undefined on success
+			return null;
+		}catch(err){
+			return err.code
 		}
 	}
 
 
-	function getRandomFileName(root){
-		return Promise(async function _getRandomFileName(resolve,reject){
+
+
+
+
+
+	/*
+	* Check the current user's access to a file
+	* @param string path
+	* @return Promise(obj,bug) 	Only rejects on bug. Resolves with object with boolean props: read,write,execute
+	*/
+	function accessAllPromise(path){
+	
+		return cX.groupPromises({
+			'exists':accessPromise(path,'F')
+			,'read':accessPromise(path,'R')
+			,'write':accessPromise(path,'W')
+			,'execute':accessPromise(path,'X')
+		}).promise.catch(obj=>obj).then(({results})=>{
 			try{
-				if(await existsPromise(root,'dir')==false)
-					throw "Directory doesn't exist";
-
-				root=resolvePath(root);
-				var rand=(Math.random()*10000000);
-				while(await fsX.existsPromise(`${root}/${rand}`,'file')){
-					rand+=1;
-				}
-				resolve(`${root}/${rand}`);
-
+				var ret={}
+				ret.exists=results.exists[0];
+				ret.read=results.read[0];
+				ret.write=results.write[0];
+				ret.execute=results.execute[0];
+				return ret;
 			}catch(err){
-				reject(log.makeError('Failed to get random file name in:',root,err));
+				return log.reject("BUGBUG groupPromises() returned something unexpected:",obj,err);
 			}
-		});
+		})
 	}
+
+	/*
+	* Check the current user's access to a file
+	* @param string path
+	* @return obj 	 object with boolean props: read,write,execute
+	*/
+	function accessAllSync(path){
+		return {
+			exists:accessSync(path,'F')==null
+			,read:accessSync(path,'R')==null
+			,write:accessSync(path,'W')==null
+			,execute:accessSync(path,'X')==null
+		}
+	}
+
+
+
+
+	/*
+	* @return Promise(null,err) 	Rejects unless current user can read and write
+	*/
+	function checkReadWrite(path){
+		return accessPromise(path,'R')
+			.catch(()=>Promise.reject('read'))
+			.then(()=>asscessPromise(path,'W'))
+			.catch(x=>{
+				var {user}=whoami();
+				return log.makeError(`Current user (${user}) cannot ${x=='read'?x:'write'} file:`,path).reject();		
+			})
+		;
+	}
+
+	/*
+	* Get a log string that explains what access the current user has to a given file. This function
+	* doesn't check if access is denied, but it produces a string that says so...
+	*
+	* @param object stat   The returned object from stat()
+	*
+	* @return string
+	*
+	* @private
+	*/
+	function getAccessDeniedLogStr(stat){
+		try{
+			var access=[];
+			if(!stat.read)access.push('read');
+			if(!stat.write)access.push('write');
+
+			var logstr=`User ${whoami().str} cannot ${access.join(' or ')} '${stat.path.full}'. `
+
+			if(stat.exists){
+				logstr+=`uid:${stat.native.uid}, gid:${stat.native.gid}, perm:${stat.perm}`;
+			}else{
+				logstr+="The inode doesn't exist. ";
+				try{
+					let parent=findParentSync(stat.path.full)
+					let {perm,native:{uid,gid}}=statSync(parent);
+					logstr+=`The first existing parent is '${parent}' which has uid:${uid}, gid:${gid}, perm:${perm}`;
+				}catch(err){
+					//This should most likely only be a EINVAL error
+					logstr+=err.message
+				}
+			}
+
+			return logstr;
+		}catch(err){
+			log.error(err,stat);
+			return 'Failed to determine current user and/or access to inode.';
+		}
+	}
+
+
+
+
+
+/*********************** exists/access end *********************************/
+
+
+
+
+
+
+
+
+
+
+
+
+
+/************************** STATUS & FILE DESCRIPTORS ********************************/
+	/*
+	* Get a descriptive code for an inode
+	*
+	* @param object|string infoOrPath  The string path, or an already created info object, @see statSync()
+	*
+	* @return string  One of: NO_EXIST, NOT_FILE, EMPTY_OPEN, OPEN, EMPTY, NOT_EMPTY
+	*/
+	function fileStatus(infoOrPath){
+
+		var info=statSync(infoOrPath);
+
+		if(!info.exists)
+			return 'NO_EXIST';
+		else if(info.type!='file')
+			return 'NOT_FILE';
+		else if(fileOpen(info.path.full))
+			if(!info.native.size)
+				return 'EMPTY_OPEN'; 
+			else
+				return 'OPEN';
+		else if(!info.native.size)
+            return 'EMPTY';
+        else
+        	return 'NOT_EMPTY';
+	}
+
+
+	/*
+	* Check if a file is open and get information about it's file handlers, see @mode for return format.
+	*
+	* @param string path
+	* @param string mode 			'full' - Default. an object with props readonly,writeonly,readwrite containing lines 
+	*										 from 'lsof', or false if not open
+	*								'lines' - Array of lines from 'lsof', or false if not open
+	*								'status' - one of the strings 'u','r','w' if the file exists ('u' if open 'r'+'u', either 
+	*										   by the same or by different file descriptors), or '' if not open
+	*								'fd' - an array of file descriptors (eg. 13r), or false ir not open
+	*
+	* @throw <BLE>
+	* @return object|false|string|null 	Null if file doesn't exist. Else see @mode ^^
+	*
+	* @access public
+	*/
+	function fileOpen(path,mode){
+		try{
+			[path,mode]=_fileOpenPrepare(path,mode);
+
+			if(!existsSync(path))
+				return null
+				
+			// var obj=cpX.native.spawnSync("lsof",[path,'|','awk',"'{print $2,$4}'"],{timeout:1000}) //cannot handle |
+			var obj=cpX.native.spawnSync("lsof",[path],{timeout:1000}) //2019-07-15: Seems not to throw even on error
+
+			if(obj.stdout)
+				return _fileOpenOutputHandler(obj.stdout,mode);
+			else
+				log.throw("BUGBUG: spawn should always return a buffer for stdout...");			
+
+		}catch(err){
+			throw log.makeError(err).addHandling("Failed to determine open file descriptors.");
+		}
+	}
+
+	/*
+	* @see fileOpen(), only diff this returns a promise
+	*
+	* @return Promise(object|false|string|null,<BLE>)
+	* @access public
+	*/
+	function fileOpenPromise(path,mode){
+		return new Promise(async function p_fileOpenPromise(resolve,reject){
+			try{
+				[path,mode]=_fileOpenPrepare(path,mode);
+
+				if(!await existsPromise(path))
+					return null
+
+				cpX.execFileInPromise("lsof",[path],{timeout:1000}) //always rejects with object
+					.then(
+						function success(obj){
+							return _fileOpenOutputHandler(obj.stdout,mode); //throws <BLE>
+						}
+						,function failed(obj){
+							//If no stderr output exists, then this is just 'lsof' saying there are no open files
+							if(!obj.stderr)
+								return mode=='status' ? '' : false; //same as _fileOpenOutputHandler() vv
+
+							throw log.makeError(obj.error).addHandling("Failed to determine open file descriptors.");
+						}
+					)
+					.then(resolve,reject); //reject here always receives <BLE>
+
+				return;
+			}catch(err){
+				reject(log.makeError(err).addHandling('Failed to determine open file descriptors.'));
+			}
+		})
+	}
+
+	/*
+	* Used by fileOpen() and fileOpenPromise()
+	* @throw <BLE>
+	* @access private
+	*/
+	function _fileOpenPrepare(path,mode='full'){
+		if(['full','lines','status','fd'].indexOf(mode)==-1)
+			log.throw('Bad value for arg #2, expected: full,status,fd, got: ',mode);
+
+		path=resolvePath(path); //throws error on bad value
+
+		return [path,mode];
+	}
+
+	/*
+	* Used by fileOpen() and fileOpenPromise(). Processes the output from linux 'lsof' command.
+	*
+	* @throw <BLE>
+	*
+	* @access private
+	*/
+	function _fileOpenOutputHandler(stdout,mode){
+		try{
+			var lines=cX.linuxTableToObjects(stdout)
+			if(!lines.length)
+				return mode=='status' ? '' : false; //same as fileOpenPromise.failed() ^^
+			
+			// log.info('fileOpen():',columns);
+			if(mode=='lines')
+				return lines;
+			if(mode=='fd')
+				return lines.map(line=>line.FD);
+			
+			// var arr=stdout.toString('utf8').trim().split('\n').slice(1); //turn into array and remove header line
+			// arr=arr.map(line=>line.replace('\S+',' ').)
+			//This could be tricky, the value in the 4th column can be 'cwd' or (#=a numerical file descriptor) '#r',
+			//'#w' or '#u' (for r/w), but can it be something else as well??
+			var ret={
+				readonly:lines.filter(line=>['r','u'].includes(line.FD.substring(-1)))
+				,writeonly:lines.filter(line=>['w','u'].includes(line.FD.substring(-1)))
+				,readwrite:lines.filter(line=>line.FD.substring(-1)=='u')
+				,all:lines
+			};
+			if(mode=='status'){
+				if(ret.readwrite.length || (ret.readonly.length || ret.writeonly.length))
+					return 'u';
+				else if(ret.readonly.length)
+					return 'r';
+				else if(ret.writeonly.length)
+					return 'w';
+				else{
+					log.info('fileOpen(): Unexpected value',lines);
+					return ''
+				}
+			}else
+				return ret;
+		}catch(err){
+			throw log.makeError(err).addHandling('Could not determine if file is open')
+		}
+	}
+
+
+	/*
+	* Trigger an async check for multiple open FDs into a local file
+	*
+	* @param number 	Warn if more than this many FD's are open
+	*
+	* @return Promise(void,n/a) 	Always resolves. Resolves after check is done.
+	*/
+	function checkOpenFDs(path, warnLimit=1){ 
+		return fileOpenPromise(path,'fd')
+			.then(function _checkOpenFDs(arrOrFalse){
+				var open=arrOrFalse||[];
+				if(open.length>warnLimit)
+					log.warn(`${open.length} file descriptor(s) (>${warnLimit}) open for '${path}': ${open.join(',')}`);
+				return;
+			})
+			.catch(log.error.bind(log));
+
+	}
+
+/************************** status and file descriptors end ****************************/
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/********************************** INFO *******************************/
+
 
 
 	function whoami(){
@@ -279,6 +754,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 		x.str=`${x.user}(${x.uid}):${x.groups.join(',')}(${x.gids})`
 		return x;
 	}
+
 
 	/*
 	* Get type of inode
@@ -318,7 +794,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	function statCommon(path){
 		var fullPath=resolvePath(path)  //throws error on fail
 
-		var info={original:path, path:_p.parse(fullPath), exists:null, native:null, type:null}
+		var info={original:path, path:_p.parse(fullPath), exists:null, native:{}, type:null}
 		info.path.full=fullPath
 
 		return info;
@@ -350,7 +826,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 
 	function statExistsCommon(info,access,native){
 		info.exists=true;
-		info.native=native;
+		Object.assign(info.native,native);
 		info.perm=modeToPerm(native.mode);
 		info.type=inodeType(native);
 		info.firstParent=info.type=='dir' ? info.path.full : _p.dirname(info.path.full);
@@ -361,6 +837,9 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 		Object.assign(info,cX.subObj(access,['read','write','execute']));
 	}
 
+	/*
+	* Determines if a file/folder is empty IF it exists, else .empty remains undefined
+	*/
 	function statCommonEmpty(info){
 		if(info.exists){
 			if(info.type=='dir'){
@@ -385,12 +864,12 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	*		}
 	*		,exists:bool
 	*		,type:'file'|'dir'|'block'|'raw'|'fifo'|'socket'|'symlink'
-	*		,empty:bool
+	*		,empty:bool              //file has any size, folder has any contents, only set if exists==true
 	*		,perm:755
-	*		,firstParent:First existing parent folder (can be same as path.dir)
-	*		,read:can current user read this path
-	*		,write:can current user write this path
-	*		,execute:can current user execute this path
+	*		,firstParent:string      //First existing parent folder (can be same as path.dir)
+	*		,read:bool               //can current user read this path
+	*		,write:bool              //can current user write this path
+	*		,execute:bool            //can current user execute this path
 	*		,native:{
 	*			dev: 2114
 	*			,ino: 48064969
@@ -417,7 +896,6 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	*
 	* @return object 	Object with less props than stat() vv
 	*/
-	
 	function statSync(pathOrInfo){
 		if(typeof pathOrInfo == 'object' && pathOrInfo.hasOwnProperty('firstParent'))
 			return pathOrInfo
@@ -488,177 +966,132 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 
 
 
-
 	/*
-	* Get the first existing inode along a path
-	*
-	* @throws TypeError 	If @path is bad
-	* @return string 		Path of existing inode
-	* @sync
+	* @param string path
+	* @return number 		The total size in bytes
 	*/
-	function findParentSync(path){
+	function folderSize(path){
+		if(typeof path!='string')
+			log.typeError("string",path)
 
-		path=resolvePath(path); //throw on bad path
-
-		var tree=path.split(_p.sep); //first item will be empty (ie. nothing before root slash)
-		
-		while(tree.length){
-			tree.pop(); //on first loop, we remove the file itself (or if the path pointed to a dir...)
-
-			let remainingPath=tree.join(_p.sep)+_p.sep;//+_p.sep => always end in '/' AND '/' when tree is empty, ie. root
-			
-			if(accessSync(remainingPath)==null){
-				return remainingPath
-			}
+		try{
+			var obj=cpX.native.spawnSync('du',['-s',path],{timeout:1000});
+			return Number(obj.stdout.toString('utf8').trim().split(/\s+/)[0]);
+		}catch(err){
+			log.error("Failed to sum folder size using linux 'du' cmd. ",err);
 		}
 
-		throw new Error("This is weird, found no existing parent to path (not even the root): "+path);
+		//Failover...
+		try{
+	        return ls(path).reduce((total,filename)=>{
+	            try{
+	            	var filepath=path+'/'+filename;
+	                return total + statSync(filepath).size;
+	            }catch(err){
+	                this.log.warn('fs.stat('+path+') returned:',stat);
+	                return total
+	            }
+	        },0)
+		}catch(err){
+			log.error("Failed to sum folder size adding size of each file. ",err);
+		}
+        
+        //If we're still running, throw error
+        log.throw("Could not determine size of "+path);
 	}
 
+
 	/*
-	* Get the first existing inode along a path
-	*
-	* @return Promise(str|err) 		Resolves with path of existing inode, rejects with error (most likely if @path is invalid)
-	* @async
+	* @return array|undefined 	An array of known content types given the extension, or undefined if we don't know
+	*							what it is
 	*/
-	function findParentPromise(path){
+	function fileExtType(pathOrExt){
+		if(typeof pathOrExt!='string')
+			log.typeError("string",pathOrExt);
 
-		return new Promise(async function(resolve,reject){
-			path=resolvePath(path); //throw on bad path
+		var ext=(pathOrExt.substring(0,1)=='.' ? pathOrExt : _p.extname(pathOrExt)).toLowerCase();
 
-			var tree=path.split(_p.sep); //first item will be empty (ie. nothing before root slash)
-			
-			while(tree.length){
-				tree.pop(); //on first loop, we remove the file itself (or if the path pointed to a dir...)
-
-				let remainingPath=tree.join(_p.sep)+_p.sep;//+_p.sep => always end in '/' AND '/' when tree is empty, ie. root
-				
-				if(await accessPromise(remainingPath)
-					.then(
-						function found(){return true;}
-						,function notFound(err){return false;}
-					)
-				){
-					resolve(remainingPath); //resolve original promise
-					return; //stop loop/function
-				}
-			}
-
-			reject(new Error("This is weird, found no existing parent to path (not even the root): "+path));
-		})
-
+		return fileExtensions[ext]
 	}
 
 
+
+
+
+
+/************************ info end ***********************************/
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/********************** READ *************************/
+
+
 	/*
-	* Wrap fs.access in a promise
-	*
 	* @param string path
-	* @param string mode 		One of F(exists), R(readable), W(writable), X(execute)
+	* @param string|object opts
 	*
-	* @return Promise(null,string) 		Rejects with error code.
+	* @throw <ble TypeError>
+	* @throw various 			If the file doesn't exist, we don't have access to is etc 
+	*
+	* @return string 		The contents of the file
 	*/
-	function accessPromise(path, mode='F'){
-		
-		return new Promise((resolve,reject)=>{
-			// log.info("Checking "+type+" for: ",resolvePath(path));
-			fs.access(resolvePath(path), fs.constants[mode.toUpperCase()+'_OK'], err=>{
-				err?reject(err.code):resolve(null);
-			});
-		});
-		
-	}
-
-
-	/*
-	* Check the current user's access to a file
-	* @param string path
-	* @return Promise(obj,bug) 	Only rejects on bug. Resolves with object with boolean props: read,write,execute
-	*/
-	function accessAllPromise(path){
-	
-		return cX.groupPromises([
-			accessPromise(path,'F')
-			,accessPromise(path,'R')
-			,accessPromise(path,'W')
-			,accessPromise(path,'X')
-		]).promise.catch(obj=>obj).then(obj=>{
+	function readFileSync(path,opts='utf8'){
+		try{
+			var str=fs.readFileSync(path,opts);
+			return str.trim(); //throws if not string //DevNote: don't use cX.trim() since that also removes quotes, which we may want...
+		}catch(err){
 			try{
-				var ret={}
-				ret.exists=obj.all[0][0]
-				ret.read=obj.all[1][0]
-				ret.write=obj.all[2][0]
-				ret.execute=obj.all[3][0]
-				return ret;
-			}catch(err){
-				return log.reject("BUGBUG groupPromises() returned something unexpected:",obj,err);
+				//For logging purposes we do extra checks...
+				cX.checkTypes(['string',['object','string']],[path,opts]);
+				existsSync(path,'file','ENOTFOUND')
+			}catch(e){
+				err=e;
 			}
-		})
+			log.makeError("Failed to read file.",err).somewhere(path).throw();
+		}	
+		
 	}
 
-
 	/*
-	* @return Promise(null,err) 	Rejects unless current user can read and write
+	* @return Promise(string,BLE) 	Resolves with content as string, rejects with BLE if file cannot
+	*								be found or read
 	*/
-	function checkReadWrite(path){
-		return accessPromise(path,'R')
-			.catch(()=>Promise.reject('read'))
-			.then(()=>asscessPromise(path,'W'))
-			.catch(x=>{
-				var {user}=whoami();
-				return log.makeError(`Current user (${user}) cannot ${x=='read'?x:'write'} file:`,path).reject();		
+	function readFilePromise(path,opts='utf8'){
+		return existsPromise(path,'file',true)
+			.then(()=>{
+				var {promise,callback}=cX.exposedPromise();
+				fs.readFile(path, opts, callback);
+				return promise;
 			})
 		;
 	}
 
-	function getEaccessLogStr(stat){
-		console.log(stat)
-		var access=[];
-		if(!stat.read)access.push('read');
-		if(!stat.write)access.push('write');
-
-		var who=whoami()
-		return `User ${who.str} cannot ${access.join(' or ')} '${stat.path.full}'.`
-			+` uid:${stat.native.uid}, gid:${stat.native.gid}, perm:${stat.perm}`;
-
-	}
-
-	/*
-	* Wrap fs.access in try
-	*
-	* @param string path 	A directory or file path
-	* @param string type 	One of:
-	*							F - Check if path exists
-	*							R - Check if path is readable for current user
-	*							W - Check if path is writable for current user
-	*							X - Check if path is executable for current user
-	*
-	* @return null|string 	Null if test succeeds, error code if it fails
-	*/
-	function accessSync(path, type='F'){
-		try{
-			fs.accessSync(resolvePath(path), fs.constants[type.toUpperCase()+'_OK']); //throws on fail, undefined on success
-			return null;
-		}catch(err){
-			return err.code
-		}
-	}
-
-
-
-	/*
-	* Check the current user's access to a file
-	* @param string path
-	* @return obj 	 object with boolean props: read,write,execute
-	*/
-	function accessAllSync(path){
-		return {
-			exists:accessSync(path,'F')==null
-			,read:accessSync(path,'R')==null
-			,write:accessSync(path,'W')==null
-			,execute:accessSync(path,'X')==null
-		}
-	}
+/************************** end read ********************/
 
 
 
@@ -672,158 +1105,20 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 
 
 
-	/*
-	* Make sure a string is a path, and if it's relative, append the working dir or an optionally passed in one
-	*
-	* @param string path 	    The path to check
-	* @opt string cwd 			If passed AND $path is relative, then this will be used as cwd instead of cwd of process
-	* @opt string cwdAlt 		If 'relative' flag is passed and we don't want paths to be relative to cwdOrig
-	* @opt flag 'make-relative' If passed, paths will be made relative to $cwd or $cwdAlt		
-	* @opt flag 'no-undefined'  If passed, if the path includes the STRING 'undefined' ANYWHERE an error will be thrown
-	*
-	* @throws <BLE TypeError> 	If path is not a string
-	* @return string 			The resolved path
-	*/
-	
-	function resolvePath(path,...options){
-		cX.checkType('string',path);
-
-		//Get options 
-		var noUndefined=cX.extractItem(options,'no-undefined')
-			,makeRelative=cX.extractItem(options,'make-relative')
-			,cwd=cX.getFirstOfType(options,'string')||process.cwd()
-			,cwdAlt=cX.getFirstOfType(options,'string')||cwd
-		;
-		
-		//If the path matches an already cleaned one, and no options were passed in, it's already been cleaned...
-		if(!options.length && cleaned.hasOwnProperty(path))
-			return path;
-
-		//Since there is a larger risk that someone built a filepath without realizing that one of the
-		//components was undefined (which turned into the string 'undefined' and got included as a dir 
-		//or file), than that something is actually named 'undefined', we throw unless explicitly told not to
-		if(noUndefined && path.includes('undefined'))
-			log.makeError("The path included substring 'undefined':",path)
-				.addHandling("If 'undefined' should be allowed, please call this function with arg #2==true.")
-				.throw();
-
-		//Resolve paths if they're relative
-		if(!_p.isAbsolute(path))
-			path=_p.resolve(cwd,path);
-		
-		//Normalize...
-		path= _p.normalize(path)
-
-		//And if we want relative paths, make them so again (possibly relative to something else)
-		if(makeRelative)
-			path='./'+_p.relative(cwdAlt,path);
-
-		//2019-12-09: Add to object so we don't clean string again. This will speed things up a little on 
-		// 			  expense of memory, but more importantly this allows arg #2 to be enacted once and then
-		//			  not ignored in future calls
-		cleaned[path]=true;
-
-		return path
-	}
 
 
 
 
 
 
-	/*
-	* Clean a filename from any bad characters so it can be written to filesystem without quotes
-	*
-	* @param string name 	
-	*
-	* @throws TypeError 	If name is not a string
-	* @return string 		A clean filename
-	*/
-	
-	function cleanFilename(name){
-		cX.checkType('string',name); //throws on error
-		return name.replace(/[^a-z0-9\-]/gi, '_').replace(/_{2,}/g, '_');
-	}
-
-
-	/*
-	* Empty all contents from a fifo (good if we can't re-create it due to some process not allowing that...)
-	*/
-	function flushFifo(path){
-		//First check that the fifo exists...
-		if(existsSync(path,'fifo')){
-			//...then write something to it to make sure it's not empty when we attempt to cat it
-			cpX.native.execFile("echo",['-n','FOO','>',path],{timeout:100},(err,stdout,stderr)=>{
-				if(err){
-					//Don't throw since this is run async...
-					log.error(stderr);
-					log.error("flushFifo(): Something went wrong.",err);
-				}
-			});
-	
-			//...finally empty the entire contents 
-			cpX.native.execFileSync("cat",[path,">","/dev/null"],{timeout:1000}); //Will throw error on fail or timeout
-
-			return true;
-		
-		}else{
-			return false;
-		}
-
-	}
-	
 
 
 
-	/*
-	* Create a fifo
-	*
-	* @throws Error		If fifo doesn't exist after for any reason.
-	* @return number 	1=fifo already existed (not re-creating), 2=created, 3=fifo re-created
-	*/
-	
-	function createFifo(path,reCreate){
-		var ret=0;
-
-		//First make sure the parent dir exists...
-		var dir=_p.dirname(path);
-		if(!existsSync(dir,'dir')){
-			log.throw("Parent dir doesn't exist: "+dir);
-
-		//...if so check if the fifo itself already exists...
-		}else if(existsSync(path,'fifo')){
-
-			//...in which case either remove in preparation for re-create, or return 1
-			if(reCreate){
-				try{
-					log.info("Removing old fifo in order to re-create: ",path);
-					cpX.native.execFileSync("rm",[path],{timeout:1000}); //Remove existing fifo 
-				}catch(err){
-					log.error("Could not remove existing fifo: "+path,err);
-				}
-				ret=ret+1;
-			}else{
-				log.info("fifo already exists, leaving it:",path);
-				return 1;  //already exists
-			}
-		}
 
 
-		try{
-			
-			cpX.native.execFileSync("mkfifo",[path],{timeout:1000});
-			
-			if(existsSync(path,'fifo'))
-				return ret+2; //Fifo was created (2)/re-created(3) here
-			else
-				throw new Error("mkfifo exited with 0 but fifo still doesn't exist");
-
-		} catch(e){
-			log.throw(e);
-		}
 
 
-	}
+/********************** WRITE *****************************/
 
 
 	/*
@@ -880,20 +1175,23 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 
 
 
+
+
+
 	/*
 	* Prepare a path for writing.
 	*
 	* NOTE: no file is actually created UNLESS you specify @perms
 	*
 	* @param string filepath
-	* @param boolean overwrite
-	* @param number|string perms Permissions to set on file
+	* @opt boolean mayExist
+	* @opt number|string perms Permissions to set on file
 	*
-	* @return Promise(true|BLE(unlogged))
+	* @return Promise(object|BLE(unlogged))    Resolves with the output from stat(), rejects with BLE
 	* @access public/exported 				
 	*/
 	
-	function prepareWritableFile(filepath, overwrite,perms){
+	function prepareWritableFile(filepath, mayExist=false,perms=null){
 		if(perms && typeof perms!='string' && typeof perms!='number')
 			return log.makeError("Expected arg#3 to be string or number,got:",log.logVar(perms)).reject('TypeError');
 
@@ -902,24 +1200,26 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 				try{
 					//If we're not allowed to write, bail
 					if(!s.write)
-						log.makeError(getEaccessLogStr(s)).throw("EWRITE");
+						log.makeError(getAccessDeniedLogStr(s)).throw("ACCESS");
 					
-					//If it exists, make sure it's a fifo/socket, or a file and we're overwriting
+					//If it exists, make sure it's a fifo/socket or a file and we're overwriting
 					if(s.exists){
 						switch(s.type){
 							case 'fifo':
 							case 'socket':
 								break; //these are fine to write to
 							case 'file':
-								if(!overwrite)
-									throw new Error("File already exists (and we're not overwriting (arg#2))");	
+								if(!mayExist)
+									throw new Error("File already exists (and we're not overwriting/appending (arg#2))");	
 								break;
 							default:
 								throw new Error("You probably shouldn't write to a "+s.type+" inode");
 						}
 
-						if(perms && String(perms)!=String(s.perm)) //Don't change if same so we don't effect modified time
+						if(perms && String(perms)!=String(s.perm)){ //Don't change if same so we don't effect modified time
 							await chmodPromise(s.path.full,perms)
+							var restat=true;
+						}
 
 
 					}
@@ -931,10 +1231,13 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 						if(perms){
 							await touchPromise(s.path.full);
 							await chmodPromise(s.path.full,perms)
+							restat=true;
 						}
 					}
-
-					return true;
+					if(restat)
+						return stat(s.path.full);
+					else
+						return s;
 				}catch(err){
 					return log.makeError(err).reject();
 				}	
@@ -942,14 +1245,49 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 		;
 	}
 
+
+
+
 	/*
-	* Write data to a file
-	* 
-	* @param string|object opts 	@see docs online. you can append/write using thise
+	* Write data to a file. 
+	*
+	* NOTE: You'll probably want to have run prepareWritableFile() before this
+	* NOTE: see docs online: https://nodejs.org/api/fs.html#fs_fs_writefile_file_data_options_callback 
+	*
+	* @param string path
+	* @param string|Buffer data 	
+	* @param string|object opts
+	*
+	* @return undefined
 	*/
-	function writeFilePromise(path,data,opts='utf8'){
-		//Make sure that the dir exists and that we're allowed to write in it (ie. we don't care if the actual file exists)
-		return existsPromise(path,'file')
+	function writeFileSync(path,data,opts){
+		//The files doesn't have to exist, but if it does it shouldn't be an inode not suitable for writing.
+		//Also the path must be valid in that halfway through it points to a file...
+		existsSync(path,['socket','fifo','file']);
+
+		fs.writeFileSync(path, data, opts);
+
+		return;
+	}
+
+
+	/*
+	* Write data to a file. 
+	*
+	* NOTE: You'll probably want to have run prepareWritableFile() before this
+	* NOTE: see docs online: https://nodejs.org/api/fs.html#fs_fs_writefile_file_data_options_callback 
+	*
+	* @param string path
+	* @param string|Buffer data 	
+	* @param string|object opts
+	*
+	* @return Promise(undefined,err)
+	* @async
+	*/
+	function writeFilePromise(path,data,opts){
+		//The files doesn't have to exist, but if it does it shouldn't be an inode not suitable for writing.
+		//Also the path must be valid in that halfway through it points to a file...
+		return existsPromise(path,['socket','fifo','file']) 
 			.then(()=>{
 				var {promise,callback}=cX.exposedPromise();
 				fs.writeFile(path, data, opts, callback);
@@ -959,163 +1297,220 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	}
 
 	/*
-	* @return Promise(string,BLE) 	Resolves with content as string, rejects with BLE if file cannot
-	*								be found or read
+	* Shorthand for writeFilePromise() with append option set
+	* @return Promise 	@see writeFilePromise()
 	*/
-	function readFilePromise(path,opts='utf8'){
-		return existsPromise(path,'file',true)
-			.then(()=>{
-				var {promise,callback}=cX.exposedPromise();
-				fs.readFile(path, opts, callback);
+	function appendFilePromise(path,data,opts){
+		if(typeof opts=='string')
+			opts={encoding:opts};
+		opts=Object.assign({},opts,{flag:'a'});
+		return writeFilePromise(path,data,opts);
+	}
+
+	/*
+	* Make sure file exists, and by default update it's modified time
+	*
+	* @return Promise(void,err)
+	* @async
+	*/
+	function touchPromise(path,setModified=true){
+		return existsPromise(path,'file')
+			.then(exists=>{
+				var {promise,resolve,reject}=cX.exposedPromise();
+				if(!exists){
+					fs.open(path, 'w', (err, fd) => {
+				    	if(err) 
+				    		return reject(err);
+				      	fs.close(fd, err => {
+				        	if(err)
+				        		return reject(err);
+				        	resolve()
+				      	});
+				    });
+				}else if(setModified){
+					fs.utimes(filename, time, time, err => {
+						if(err)
+				        	return reject(err);
+				        resolve()
+					})
+				}
 				return promise;
 			})
 		;
 	}
 
 	/*
-	* @return Promise(bool|BLE)
+	* Make sure file exists, and by default update it's modified time
+	*
+	* @throws 
+	* @return void
+	* @sync
+	*/
+	function touch(path,setModified=true){
+		if(!existsSync(path,'file')){
+			fs.closeSync(fs.openSync(path, 'w'));
+		}else if(setModified){
+			var time = new Date();
+			fs.utimesSync(path, time, time);
+		}
+		return;
+	}
+
+
+	/*
+	* Calls native chmod but returns promise instead of requiring callback
+	*
+	* @param string path
+	* @param string perms 	NOTE: numbers will be converted to strings, ie. don't try to send numeric bitmasks, just
+	*							  regular old 755 or 600...  
+	*
+	* @return Promise(void,err)
+	*/
+	function chmodPromise(path,perms){
+		var {callback,promise}=cX.exposedPromise();
+		fs.chmod(path,String(perms),callback);
+		return promise;
+	}
+
+
+	function move(oldPath,newPath){
+		return existsPromise(oldPath)
+			.then(()=>checkReadWrite(newPath))
+			.then(()=>cX.promisifyCallback(fs.rename,oldPath,newPath))
+		;
+	}
+
+/******************** write end **************************/
+
+
+
+
+
+
+
+
+
+
+/********************* DELETE ***************************/
+
+
+
+	/*
+	* Delete a file
+	* @param string path
+	* @return Promise(bool,<ble>) 		@see _common_deletePromise()
 	*/
 	function deleteFilePromise(path){
-		return existsPromise(path)
-			.then(exists=>{
-				if(exists){
-					return deleteFileCommon(path);
-				}else{
-					return Promise.resolve(false);
-				}
-			})
+		return _common_deletePromise(path,['file','fifo','socket','symlink']);
 	}
-
-	function deleteFileCommon(path){
-		return checkReadWrite(newPath)
-			.then(()=>cX.promisifyCallback(fs.rename,oldPath,newPath))
-			.catch(err=>err.addHandling('Failed to delete existing file.').reject())
-			.then(()=>true);
-	}
-
-
-	async function deletePromise(path){
-		try{
-			let s=await stat(path);
-			if(!s.exists)
-				return false;
-
-			if(s.type=='dir'){
-				await checkReadWrite(path);
-				fs.rmdir(path)
-			}else{
-				return deleteFileCommon(path);
-			}
-
-
-		}catch(err){
-			log.makeError("Failed to remove",path,err).reject();
-		}
-
-	}
-
-
 	/*
+	* Delete a file
 	* @param string path
-	* @param string|object opts
-	*
-	* @throw <ble TypeError>
-	* @throw <ble> 			If the file doesn't exist, we don't have access to is etc (see err.code
-	*)
-	* @return string 		The contents of the file
+	* @return Promise(bool,<ble>) 		@see _common_deleteSync()
 	*/
-	function readFile(path,opts='utf8'){
-		try{
-			return cX.trim(fs.readFileSync(path,opts));
-		} catch(err){
-			try{
-				cX.checkTypes(['string',['object','string']],[path,opts]);
-				existsSync(path,'file',true)
-			}catch(e){
-				err=e;
-			}
-			log.makeError("Failed to read file.",err).somewhere(path).throw();
-		}	
-		
+	function deleteFileSync(path){
+		return _common_deleteSync(path,['file','fifo','socket','symlink']);
 	}
 
+
+
 	/*
-	* Get a json string from a file and parse it
-	*
-	* @param string path 		The path of the file to read
-	* @param bool emptyOnFail 	Default false, ie. throw on fail. If true return empty object on fail
-	*
-	* @return object 			A javascript object, or on failure @see @emptyOnFail
+	* Delete a folder
+	* @param string path
+	* @return Promise(bool|ble)    @see _common_deletePromise()
 	*/
-	function getJsonFromFile(path, emptyOnFail=false){
+	function deleteFolderPromise(path){
+		return _common_deletePromise(path,'dir');
+	}
+	/*
+	* Delete a folder
+	* @param string path
+	* @throws ble 					@see _common_deleteSync()
+	* @return bool
+	*/
+	function deleteFolderSync(path){
+		return _common_deleteSync(path,'dir');
+	}
+
+
+
+
+	/*
+	* Delete a file or folder
+	*
+	* @param string path
+	* @param string|array types
+	*
+	* @return Promise 		
+	* @resolves bool	                True/false if it was deleted now
+	* @reject <ble ETYPE>               If inode is not right type
+	* @reject <ble EACCESS>             If current user is not allowed to delete the file
+	*
+	* @private
+	*/
+	function _common_deletePromise(path,types){
+		return existsPromise(path,types,'ENOTFOUND')
+			.then(()=>checkReadWrite(path))
+			.then(()=>cX.promisifyCallback(fs[types=='dir'?rmdir:unlink],path))
+			.catch(err=>{
+				if(err.code=='ENOTFOUND')
+					return false;
+				else
+					return log.makeError(`Failed to delete ${types=='dir'?'dir':'file'}: `,path,err).reject();
+			})
+		;
+	}
+	/*
+	* @see _common_deletePromise()
+	* @private
+	*/
+	function _common_deleteSync(path,types){
+		if(!existsSync(path,types))
+			return false;
+
 		try{
-			var str=readFile(path); //typeerror if not string, false if problems reading or no exist
-			if(typeof str=='string'){
-				if(str==''){
-					throw new Error("The file was empty (ie. no json inside): "+path);	
-				}else{
-					var obj=cX.tryJsonParse(str)
-					if(typeof obj=='undefined'){
-						throw new Error("Failed to parse json from file: "+path);
-					}else{
-						cX.checkType(['object','array'],obj); //throw on fail
-						return obj;
-					}
-				}
-			}else{
-				throw new Error("Failed to read file (see log)."); //path included in log
-			}
+			if(types=='dir')
+				return fs.rmdirSync(path);
+			else
+				return fs.unlinkSync(path);
 		}catch(err){
-			if(emptyOnFail){
-				log.warn(err);
-				return {};
-			}else
-				log.throw(err);
+			//The most likely error is access, so check that before we egen entertain anything else
+			let s=statSync(path);
+			if(!s.write)
+				log.makeError(getAccessDeniedLogStr(s)).throw("ACCESS");
+			else
+				log.makeError(`Failed to delete ${types=='dir'?'dir':'file'}: `,path,err).throw();
 		}
 	}
 
 
-	/*
-	* Read and parse a file like:
-	*	VAR1=Foo
-	*	VAR2=Bar2
-	*
-	* @param string path 		The path of the file to read
-	* @param bool emptyOnFail 	Default false, ie. throw on fail. If true return empty object on fail
-	*
-	* @return object
-	*/
-	function getArgsFromFile(str,emptyOnFail=false,commentRegexp=/#.*$/){
-		try{
-			var str=readFile(path); //typeerror if not string, false if problems reading or no exist
-			if(typeof str=='string'){
-				if(str==''){
-					throw new Error("The file was empty (ie. no json inside): "+path);	
-				}else{
-					str=cX.trim(str); //removes surrounding spaces, quotes and newlines
-
-					var arr=str.split('\n')
-						.filter(line=>!cX.isEmpty(line))
-						.map(line=>line.replace(commentRegexp,''))
-
-					return cX.splitArrayItemsToObject(arr,'=');
-				}
-			}else{
-				throw new Error("Failed to read file (see log)."); //path included in log
-			}
-		}catch(err){
-			if(emptyOnFail){
-				log.warn(err);
-				return {};
-			}else
-				log.throw(err);
-		}
-
-
-	}
+/********************* delete end ************************/
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/********************* FIND & LIST ************************/
 
 	/*
 	* Get contents of dir or search for a pattern
@@ -1124,10 +1519,10 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	*
 	* @param string path 		Path or search pattern. NOTE: pattern only works on unix systems that have 'find' command
 	* @opt string|bool mode		The following are accepted:	
-	*	filename,basename,name,file,false 	=> foo.js
-	* 	fullpath,full,path,true 			=> /path/to/foo.js
-	*   relative => ./foo.js 	NOTE: relative to process.cwd() or $relativeTo
-	* 
+	*		filename,basename,name,file,false 	=> foo.js
+	* 		fullpath,full,path,true 			=> /path/to/foo.js
+	*   	relative 							=> ./foo.js 			@see $relativeTo
+	* @opt string relativeTo    Used if $mode=='relative', defaults to  process.cwd()
 	*
 	* @throw <ble TypeError>
 	* @throw <ble ENOENT> 		If the path doesn't exist (does not apply to search patterns)
@@ -1158,9 +1553,11 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 			//For "search patterns" we use 'find' 
 			let dir=fullpathOrPattern.substr(0,index), pattern=fullpathOrPattern.substr(index); //keep outside try-block so errors aren't mistaken...
 			try{
-// DevNote 2020-05-18: 'ls' needs a shell feature called 'globbing' which expands '*' to matching files to do this, but when
-// trying to run with a shell we got the files in pwd, it completely ignored the path we were asking for... Also, trying
-// to run execSync('find',[path]) will return `find pwd`, while execFileSync('find',[path]) will in fact return `find pwd`
+/* DevNote 2020-05-18: Why use unix 'find' instead of 'ls'? 
+	'ls' needs a shell feature called 'globbing' which expands '*' to matching files to do this, but when trying to run with 
+	a shell we got the files in pwd, it completely ignored the path we were asking for... Also, trying
+	to run execSync('find',[path]) will return `find pwd`, while execFileSync('find',[path]) will in fact return `find pwd`
+*/
 				list=cpX.execFileSync('find',[dir,'-name',pattern],{lines:true}).stdout;
 			}catch(err){
 				//If find doesn't match any files it'll throw an error, but really we just want to note this and move on
@@ -1200,7 +1597,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	* Get details contents of dir
 	*
 	* @throw err 	@see ls
-	* @return array[object] 	@see statSync()
+	* @return array[object] 	Array of outputs from @see statSync()
 	* @not_logged
 	* @sync
 	*/
@@ -1385,325 +1782,188 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 		}
 	}
 
-	
-
-
-	function fileStatus(infoOrPath){
-
-		var info=statSync(infoOrPath);
-
-		if(!info.exists)
-			return 'NO_EXIST';
-		else if(info.type!='file')
-			return 'NOT_FILE';
-		else if(fileOpen(info.path.full))
-			if(!info.native.size)
-				return 'EMPTY_OPEN'; 
-			else
-				return 'OPEN';
-		else if(!info.native.size)
-            return 'EMPTY';
-        else
-        	return 'NOT_EMPTY';
-	}
-
-	/*
-	* @return string 	String describing outcome, see func body...
-	*/
-	
-	function deleteIfEmpty(infoOrPath){
-
-		var info=statSync(infoOrPath);
-		var status=fileStatus(info);
-		if(status=='OPEN_EMPTY')
-		if(status!='EMPTY')
-			return status;
-		
-		if(info.write===false || (!info.hasOwnProperty('write') && accessSync(info.path.full,'W')!=null)){
-			return 'NO_WRITE';
-		}else{
-            fs.unlinkSync(info.path.full);
-            return 'DELETED';
-		}
-	}
-
-
-	/*
-	* Check if a file is open and get information about it's file handlers, see @mode for return format.
+		/*
+	* Get the first existing inode along a path
 	*
 	* @param string path
-	* @param string mode 			'full' - Default. an object with props readonly,writeonly,readwrite containing lines 
-	*										 from 'lsof', or false if not open
-	*								'lines' - Array of lines from 'lsof', or false if not open
-	*								'status' - one of the strings 'u','r','w' if the file exists ('u' if open 'r'+'u', either 
-	*										   by the same or by different file descriptors), or '' if not open
-	*								'fd' - an array of file descriptors (eg. 13r), or false ir not open
 	*
-	* @throw <BLE>
-	* @return object|false|string|null 	Null if file doesn't exist. Else see @mode ^^
+	* @throws <ble TypeError> 	for $path
+	* @throws <ble EINVAL>      If no parent path was found 
 	*
-	* @access public
+	* @return string 		Path of parent inode that exists
+	* @sync
 	*/
-	function fileOpen(path,mode){
-		try{
-			[path,mode]=_fileOpenPrepare(path,mode);
+	function findParentSync(path){
 
-			if(!existsSync(path))
-				return null
-				
-			// var obj=cpX.native.spawnSync("lsof",[path,'|','awk',"'{print $2,$4}'"],{timeout:1000}) //cannot handle |
-			var obj=cpX.native.spawnSync("lsof",[path],{timeout:1000}) //2019-07-15: Seems not to throw even on error
+		path=resolvePath(path); //throw on bad path
 
-			if(obj.stdout)
-				return _fileOpenOutputHandler(obj.stdout,mode);
-			else
-				log.throw("BUGBUG: spawn should always return a buffer for stdout...");			
+		var tree=path.split(_p.sep); //first item will be empty (ie. nothing before root slash)
+		
+		while(tree.length){
+			tree.pop(); //on first loop, we remove the file itself (or if the path pointed to a dir...)
 
-		}catch(err){
-			throw log.makeError(err).addHandling("Failed to determine open file descriptors.");
-		}
-	}
-
-	/*
-	* @see fileOpen(), only diff this returns a promise
-	*
-	* @return Promise(object|false|string|null,<BLE>)
-	* @access public
-	*/
-	function fileOpenPromise(path,mode){
-		return new Promise(async function p_fileOpenPromise(resolve,reject){
-			try{
-				[path,mode]=_fileOpenPrepare(path,mode);
-
-				if(!await existsPromise(path))
-					return null
-
-				cpX.execFileInPromise("lsof",[path],{timeout:1000}) //always rejects with object
-					.then(
-						function success(obj){
-							return _fileOpenOutputHandler(obj.stdout,mode); //throws <BLE>
-						}
-						,function failed(obj){
-							//If no stderr output exists, then this is just 'lsof' saying there are no open files
-							if(!obj.stderr)
-								return mode=='status' ? '' : false; //same as _fileOpenOutputHandler() vv
-
-							throw log.makeError(obj.error).addHandling("Failed to determine open file descriptors.");
-						}
-					)
-					.then(resolve,reject); //reject here always receives <BLE>
-
-				return;
-			}catch(err){
-				reject(log.makeError(err).addHandling('Failed to determine open file descriptors.'));
+			let remainingPath=tree.join(_p.sep)+_p.sep;//+_p.sep => always end in '/' AND '/' when tree is empty, ie. root
+			
+			if(accessSync(remainingPath)==null){
+				return remainingPath
 			}
-		})
-	}
-
-	/*
-	* Used by fileOpen() and fileOpenPromise()
-	* @throw <BLE>
-	* @access private
-	*/
-	function _fileOpenPrepare(path,mode='full'){
-		if(['full','lines','status','fd'].indexOf(mode)==-1)
-			log.throw('Bad value for arg #2, expected: full,status,fd, got: ',mode);
-
-		path=resolvePath(path); //throws error on bad value
-
-		return [path,mode];
-	}
-
-	/*
-	* Used by fileOpen() and fileOpenPromise(). Processes the output from linux 'lsof' command.
-	*
-	* @throw <BLE>
-	*
-	* @access private
-	*/
-	function _fileOpenOutputHandler(stdout,mode){
-		try{
-			var lines=cX.linuxTableToObjects(stdout)
-			if(!lines.length)
-				return mode=='status' ? '' : false; //same as fileOpenPromise.failed() ^^
-			
-			// log.info('fileOpen():',columns);
-			if(mode=='lines')
-				return lines;
-			if(mode=='fd')
-				return lines.map(line=>line.FD);
-			
-			// var arr=stdout.toString('utf8').trim().split('\n').slice(1); //turn into array and remove header line
-			// arr=arr.map(line=>line.replace('\S+',' ').)
-			//This could be tricky, the value in the 4th column can be 'cwd' or (#=a numerical file descriptor) '#r',
-			//'#w' or '#u' (for r/w), but can it be something else as well??
-			var ret={
-				readonly:lines.filter(line=>['r','u'].includes(line.FD.substring(-1)))
-				,writeonly:lines.filter(line=>['w','u'].includes(line.FD.substring(-1)))
-				,readwrite:lines.filter(line=>line.FD.substring(-1)=='u')
-				,all:lines
-			};
-			if(mode=='status'){
-				if(ret.readwrite.length || (ret.readonly.length || ret.writeonly.length))
-					return 'u';
-				else if(ret.readonly.length)
-					return 'r';
-				else if(ret.writeonly.length)
-					return 'w';
-				else{
-					log.info('fileOpen(): Unexpected value',lines);
-					return ''
-				}
-			}else
-				return ret;
-		}catch(err){
-			throw log.makeError(err).addHandling('Could not determine if file is open')
 		}
+
+		log.throwCode("EINVAL","No parent path found (not even /), ie. something is wrong with this path string:",path);
 	}
+
+	/*
+	* Get the first existing inode along a path
+	*
+	* @return Promise(str|err) 		Resolves with path of existing inode, rejects with error (most likely if $path is invalid)
+	* @async
+	*/
+	function findParentPromise(path){
+
+		return new Promise(async function(resolve,reject){
+			path=resolvePath(path); //throw on bad path
+
+			var tree=path.split(_p.sep); //first item will be empty (ie. nothing before root slash)
+			
+			while(tree.length){
+				tree.pop(); //on first loop, we remove the file itself (or if the path pointed to a dir...)
+
+				let remainingPath=tree.join(_p.sep)+_p.sep;//+_p.sep => always end in '/' AND '/' when tree is empty, ie. root
+				
+				if(await accessPromise(remainingPath)
+					.then(
+						function found(){return true;}
+						,function notFound(err){return false;}
+					)
+				){
+					resolve(remainingPath); //resolve original promise
+					return; //stop loop/function
+				}
+			}
+
+			reject(log.makeError("No parent path found (not even /), ie. something is wrong with this path string:",path).setCode("EINVAL"));
+		})
+
+	}
+
+
+
+/***************************** find & list end ***************************/
+
+
+
+
+
+
+/******************* FIFO  ******************/
+
+	/*
+	* Empty all contents from a fifo (good if we can't re-create it due to some process not allowing that...)
+	*/
+	function flushFifo(path){
+		//First check that the fifo exists...
+		if(existsSync(path,'fifo')){
+			//...then write something to it to make sure it's not empty when we attempt to cat it
+			cpX.native.execFile("echo",['-n','FOO','>',path],{timeout:100},(err,stdout,stderr)=>{
+				if(err){
+					//Don't throw since this is run async...
+					log.error(stderr);
+					log.error("flushFifo(): Something went wrong.",err);
+				}
+			});
+	
+			//...finally empty the entire contents 
+			cpX.native.execFileSync("cat",[path,">","/dev/null"],{timeout:1000}); //Will throw error on fail or timeout
+
+			return true;
+		
+		}else{
+			return false;
+		}
+
+	}
+	
+
 
 
 	/*
-	* Trigger an async check for multiple open FDs into a local file
+	* Create a fifo
 	*
-	* @param number 	Warn if more than this many FD's are open
-	*
-	* @return Promise(void,n/a) 	Always resolves. Resolves after check is done.
+	* @throws Error		If fifo doesn't exist after for any reason.
+	* @return number 	1=fifo already existed (not re-creating), 2=created, 3=fifo re-created
 	*/
-	function checkOpenFDs(path, warnLimit=1){ 
-		return fileOpenPromise(path,'fd')
-			.then(function _checkOpenFDs(arrOrFalse){
-				var open=arrOrFalse||[];
-				if(open.length>warnLimit)
-					log.warn(`${open.length} file descriptor(s) (>${warnLimit}) open for '${path}': ${open.join(',')}`);
-				return;
-			})
-			.catch(log.error.bind(log));
+	
+	function createFifo(path,reCreate){
+		var ret=0;
+
+		//First make sure the parent dir exists...
+		var dir=_p.dirname(path);
+		if(!existsSync(dir,'dir')){
+			log.throw("Parent dir doesn't exist: "+dir);
+
+		//...if so check if the fifo itself already exists...
+		}else if(existsSync(path,'fifo')){
+
+			//...in which case either remove in preparation for re-create, or return 1
+			if(reCreate){
+				try{
+					log.info("Removing old fifo in order to re-create: ",path);
+					cpX.native.execFileSync("rm",[path],{timeout:1000}); //Remove existing fifo 
+				}catch(err){
+					log.error("Could not remove existing fifo: "+path,err);
+				}
+				ret=ret+1;
+			}else{
+				log.info("fifo already exists, leaving it:",path);
+				return 1;  //already exists
+			}
+		}
+
+
+		try{
+			
+			cpX.native.execFileSync("mkfifo",[path],{timeout:1000});
+			
+			if(existsSync(path,'fifo'))
+				return ret+2; //Fifo was created (2)/re-created(3) here
+			else
+				throw new Error("mkfifo exited with 0 but fifo still doesn't exist");
+
+		} catch(e){
+			log.throw(e);
+		}
+
 
 	}
+
+/******************* Fifo end ******************/
+
+
+
+
+
+
+
+
+
 
 	
 
-	/*
-	* Creates a smart obj/arr which, when written to it automatically writes to HDD
-	*
-	* @param string filepath
-	* @param function constructor 	Either SmartObject() or SmartArray()
-	* @param object options 		Any additional options used to create smarty
-	*
-	* @return <SmartArr>|<SmartObject>
-	*/
-	function createStoredSmarty(filepath,constructor,options={}){
-        cX.checkTypes(['string','function','object'],[filepath,constructor,options]);
-        var type=(constructor.name=='SmartArray' ? 'array' : 
-        	constructor.name=='SmartObject'?'object':log.throwCode('EINVAL','Expected arg#2 to be smart constructor, got:',constructor));
-
-    //2020-05-08: should probably not mess with vv, just let the defaults rule...
-        //Add some options
-        if(type=='array'){
-            options=Object.assign({},{moveEvent:true},options);
-        }else{
-            options=Object.assign({},{children:'complex'},options);
-        }
-
-        var smarty=new constructor(options)
-
-        //Store and return smarty
-        return storeSmarty(filepath,smarty);
-    }
 
 
-    /*
-	* Store an existing smarty
-	*
-	* @param string filepath
-	* @param <SmartProto> smarty
-	* @opt flag 'noRead' 			If passed, nothing will be read from disk until ._read() is called
-	*
-	* @return $smarty
-    */
-    function storeSmarty(filepath,smarty,noRead=false){
-    	var [,name]=cX.checkTypes(['string',['<SmartArray>','<SmartObject>']],[filepath,smarty]);
-
-    	//Smarties can only be stored once...
-    	if(smarty._private.storage)
-    		log.throw("Smarty already stored @"+smarty._private.storage.filepath)
-
-    	//To store the smarty we want to define a couple of methods, so these props cannot already be taken
-    	if(smarty.has('_detach'))
-    		log.throw("Cannot store smarty when prop '_detach' is already defined")
-    	if(smarty.has('_unlink'))
-    		log.throw("Cannot store smarty when prop '_unlink' is already defined")
-    	if(smarty.has('_read'))
-    		log.throw("Cannot store smarty when prop '_read' is already defined")
-    	smarty._private.reservedKeys._unlink=true
-    	smarty._private.reservedKeys._read=true;
-
-    	//Create the storage
-        smarty._private.storage=new StoredItem(
-        	filepath
-        	,(name=='<SmartArray>' ? 'array':'object')
-        	,(smarty._private.options.children!='primitive' ? 'json' : undefined)
-        	,smarty._log
-        );
-
-        //Create additional flag that controlls if changes are written to file, which can easily to turned off for a while if needed
-        smarty._private.attached=true;
 
 
-       	//Make sure there is a snapshot happening so we have somethingn to listen for
-    	if(!smarty.hasSnapshot()){
-    		var removeSnapshot=true;
-    		smarty.setupSnapshot(1000);
-    	}
 
 
-        //Then start listening to the snapshot and write the whole thing to HDD, as long as we're still attached (see ^^)
-        function writeToDisk(){
-        	if(smarty._private.attached){
-        		if(!smarty._private.storage.stat.exists){
-        			log.note("Creating file for stored smarty NOW @",smarty._private.storage.filepath);
-        			smarty._private.storage.stat.exists=true;
-        		}
-        		smarty._private.storage.write(smarty.stupify()).catch(log.error)
-        	}
-        };
-		smarty.on('snapshot',writeToDisk)
-
-        /*
-		* Unlink the underlying file (and stop storing changes)
-		* @return void
-        */
-        Object.defineProperty(smarty,'_unlink',{value:function unlinkStoredSmarty(){
-        	//Remove the listener
-        	smarty.off('snapshot',writeToDisk);
-
-        	//If we added snapshot then remove it again
-        	if(removeSnapshot)
-        		smarty.removeSnapshot();
-
-        	//Delete the file
-         	smarty._private.storage.unlink();
-
-         	//remove this prop
-         	delete smarty._private.storage;
-         }});
 
 
-        Object.defineProperty(smarty,'_read',{value:function readFromStorage(){
-	        if(smarty._private.storage.stat.exists){
-		        //Load initial data from storage and set anything not already set
-		        smarty.fillOut(smarty._private.storage.read());
-	        }else{
-	        	log.note("No previous data/file found. It will be created when something is set on this smarty @",smarty._private.storage.filepath);
-	        }
-        }});
 
-        if(noRead!='noRead')
-        	smarty._read();
-        
 
-        return smarty;
-    }
+
+
+/******************* MISC *****************************/
+
+
 
 
 
@@ -1713,29 +1973,92 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 /*
 	* @constructor 	This item saves and reads primitive/complex object to/from a file
 	*
+	* NOTE: Format is determined by flags first, then ending of filepath, then defaults to key=value
+	*
 	* @param string 	filepath 		
 	* @opt string 		restrictType 	@see varType(). If passed, values will be checked before store/after read so they match this
-	* @opt flag     	'json' 			If passed value will be stored as json, else as delimited lines
+	* @opt flag     	'json' 			Store as json
+	* @opt flag     	'key=value'     Stores objects as key=value\n, throws if restrictType is any primitive
+	* @opt flag     	'lines'         Store object values on each line, or split string on \n
+	* @opt flag     	'string'        Store as string. Don't need to pass twice if you pass as $restrictedType
+	* @opt flag     	'preventEmpty'  If file is not empty, and we try to store empty value, throw
 	* @opt <BetterLog> 	_log 			If omitted the filesystem log will be used
+	*
+	*
+	* @prop string filepath
+	* @prop <BetterLog> log
+	* @prop <fsX.statSync($filepath)> stat
+	* @method write
+	* @method read
+	* @method unlink
 	*/
 	function StoredItem(filepath,...options){
+		if(!this instanceof StoredItem)
+			throw new Error("StoredItem() is a constructor and should be new'ed");
+
 		this.filepath=resolvePath(filepath);
 
-		//Get args 2,3 and 4 in any order
-		var j=options.indexOf('json')
-			,saveAsJson=j>-1?options.splice(j,1):false //first extract 'json'...
-			,restrictType=options.find(arg=>typeof arg=='string') //...then the first string should be the type
-			,_log=options.find(arg=>arg && arg._isBetterLog)||log 
-		;
+		this.log=cX.findExtract(options,arg=>arg && arg._isBetterLog)||log ;
+
+		var preventEmpty=cX.extractItem(options,'preventEmpty');
+
+		//Get specified format...
+		var format=cX.extractItems(options,['json','key=value','lines','string'])[0]; //extract all but use first
+		
+		//...also check file extension for format clues
+		if(this.filepath.endsWith('.json')){
+			if(format=='json')
+				this.log.warn("Did you mean to store key=value format in .json file?",arguments);
+			else if(!format)
+				format='json';
+
+		}else if(format=='json'){
+			this.log.note("Storing in json format, but not using .json file extension:",this.filepath);
+		}
+
+		//Finally, the first remaining string will be used to restrict the format of what is saved
+		var restrictType=cX.getFirstOfType(options,'string','extract');
+		
+		//If we don't have a format try do deduce it from here
+		switch(restrictType){
+			case 'string':
+			case 'number':
+			case 'boolean':
+			case 'primitive':
+				if(!format){
+					format='string'; 
+				}else if(format!='json'){
+					//applies to 'lines' and 'key=value'
+					this.log.throwCode('EMISMATCH',`Cannot store ${restrictType} as format '${format}'`,arguments);
+				}
+				format='string'; 
+				break;
+			case 'object':
+				if(!format){
+					format='key=value'; 
+				}else if(format=='lines'){
+					this.log.throwCode('EMISMATCH',`Cannot store an object as 'lines'. Try 'key=value' or 'json'.`,arguments);
+				}
+				break;
+			case 'array':
+				if(!format){
+					format='lines'; 
+				}
+				break;
+		}
+
+		//Make sure we have a format, default to string
+		format=format||'string';
 
 
 		//Make sure the path is a reasonable candidate
 		this.stat=statSync(this.filepath);
 		if(this.stat.exists && this.stat.type!='file')
-			_log.makeError(`Path is a ${this.stat.type}, not a file.`).throw('ENOTFILE')
+			this.log.makeError(`Path is a ${this.stat.type}, not a file.`).throw('ENOTFILE')
 
 		if(!this.stat.read && !this.stat.write)
-			_log.makeError(getEaccessLogStr(this.stat)).throw('EACCES')
+			this.log.makeError(getAccessDeniedLogStr(this.stat)).throw('EACCES')
+
 
 		function getEmpty(){
 			switch(restrictType){
@@ -1747,6 +2070,8 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 					return [];
 				case 'object': 
 					return {};
+				case 'boolean':
+					return false;
 				default:
 					return undefined;
 			}
@@ -1759,49 +2084,51 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 		* @param string|number|bool|array|object 	data
 		*
 		* @throw TypeError
+		* @throw EILLEGAL
+		* @throw EMISMATCH
 		*
 		* @return Promise(void,err)
 		*/
-		this.write=function(data){
+		this.write=(data)=>{
 			try{
 				//When writing, throw on type that doesn't match restricted...
 				var t=(restrictType ? cX.checkType(restrictType,data) : cX.varType(data));
+
 			}catch(err){
-				return _log.makeError("Could not write data:",data,err).reject();
+				return this.log.makeError("Could not write data:",data,err).reject();
 			}
 
 			return prepareWritableFile(this.filepath,true) //true=overwrite
-				.then(()=>{
+				.then((stat)=>{
+					if(stat.empty===false && cX.isEmpty(data)){
+						if(preventEmpty)
+							this.log.throwCode('EILLEGAL',`This StoredItem does not allow writing empty data. File size: ${stat.native.size}.`,this.filepath)
+						else
+							this.log.note(`Emptying ${this.filepath} of existing data. File size: ${stat.native.size}`);
+					}
 					var str;
-					if(saveAsJson){
-						str=JSON.stringify(data)
-					}else{
-						switch(t){
+					try{
+						switch(format){
+							case 'json': 
+								str=JSON.stringify(data);
+								break;
+							case 'key=value':
+								str=cX.objectToLines(data,'='); //throws if not object/array
+								break;
+							case 'lines':
+								str=data.join('\n'); //throws if this method doesn't exist
+								break;
 							case 'string':
-							case 'number':
 								str=cX.trim(String(data));
-								break;
-							case 'array':
-								str=data.join('\n');
-								break;
-							case 'object':
-								str=cX.objectToLines(data,'=');
-								break;
-							case 'boolean':
-								str=(data ? 'true' : 'false');
-								break;
-							default:
-								_log.throwCode('EINVAL','Cannot store vartype: '+t);
 						}
+					}catch(err){
+						this.log.throwCode("EMISMATCH",`Failed to store ${cX.varType(data)} as ${format}`,data,err);
 					}
 					
 					//Write async to file, returning a promise that resolves when writing is finished
-					var {promise,callback}=cX.exposedPromise()
-					fs.writeFile(this.filepath, str,callback);
-					return promise;
+					return writeFilePromise(this.filepath,str);
 				})
-
-
+			;
 		}
 
 
@@ -1811,35 +2138,42 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 		* @return mixed
 		* @sync
 		*/
-		this.read=function(){
-			var str=readFile(this.filepath); //loggs if not exists
+		this.read=()=>{
+			var str=readFileSync(this.filepath); //logs if not exists
 
-			//If we didn't get anything, return an empty item of the $restrictType 
-			if(!str){
-				_log.trace("File was empty.",this.filepath);
+			//If we didn't get anything, return an empty item of the $restrictType or undefined
+			if(cX.isEmpty(cX.stringToPrimitive(str))){
+				this.log.trace("File was empty.",this.filepath);
 				return getEmpty();
 			}
 
 			//Parse whatever format the data was stored in
-			var data;
-			if(saveAsJson){
-				data=cX.tryJsonParse(str);
-			}else{
-				switch(restrictType){
-					case 'array':
-						data=str.split('\n'); break;
-					case 'object':
-						data=cX.linesToObj(str,'=');break;
-					default:
-						data=str;
-				}
-			}
-
-			//Force the restricted type
 			try{
-				return cX.forceType(restrictType,data);
+				switch(format){
+					case 'json': 
+						var data=cX.tryJsonParse(str,restrictType); 
+						break;
+					case 'key=value':
+						data=cX.linesToObj(str,'=');
+						break;
+					case 'lines':
+						data=str.split('\n'); 
+						break;
+					case 'string':
+						data=cX.stringToPrimitive(str);
+				}
 			}catch(err){
-				_log.makeError(`Expected file ${this.filepath} to contain ${restrictType}, but found:`,str);
+				this.log.throwCode('EFORMAT',`Data in ${this.filepath} could not be parsed as ${format}.`,str,err);
+			}
+			
+			if(restrictType){
+				try{
+					return cX.forceType(restrictType,data);
+				}catch(err){
+					this.log.throwCode('EMISMATCH',`Expected ${this.filepath} to contain ${restrictType}, but found:`,data);
+				}
+			}else{
+				return data;
 			}
 
 		}
@@ -1850,7 +2184,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 		* @return void
 		* @sync
 		*/
-		this.unlink=function(){
+		this.unlink=()=>{
 			if(existsSync(this.filepath))
 				fs.unlinkSync(this.filepath);
 			return;
@@ -1869,130 +2203,47 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 
 
 
-	/*
-	* @param string path
-	* @return number 		The total size in bytes
-	*/
-	function folderSize(path){
-		if(typeof path!='string')
-			log.typeError("string",path)
-
-		try{
-			var obj=cpX.native.spawnSync('du',['-s',path],{timeout:1000});
-			return Number(obj.stdout.toString('utf8').trim().split(/\s+/)[0]);
-		}catch(err){
-			log.error("Failed to sum folder size using linux 'du' cmd. ",err);
-		}
-
-		//Failover...
-		try{
-	        return ls(path).reduce((total,filename)=>{
-	            try{
-	            	var filepath=path+'/'+filename;
-	                return total + statSync(filepath).size;
-	            }catch(err){
-	                this.log.warn('fs.stat('+path+') returned:',stat);
-	                return total
-	            }
-	        },0)
-		}catch(err){
-			log.error("Failed to sum folder size adding size of each file. ",err);
-		}
-        
-        //If we're still running, throw error
-        log.throw("Could not determine size of "+path);
-	}
-
 
 
 	/*
-	* @return array|undefined 	An array of known content types given the extension, or undefined if we don't know
-	*							what it is
+	* Generate a random filename that doesn't exist in a given root folder
+	* @param string root
+	* @return string      The full path to the proposed file (ie. prepended by $root)
 	*/
-	function fileExtType(pathOrExt){
-		if(typeof pathOrExt!='string')
-			log.typeError("string",pathOrExt);
+	function getRandomFileName(root){
+		return Promise(async function _getRandomFileName(resolve,reject){
+			try{
+				if(await existsPromise(root,'dir')==false)
+					throw "Directory doesn't exist";
 
-		var ext=(pathOrExt.substring(0,1)=='.' ? pathOrExt : _p.extname(pathOrExt)).toLowerCase();
-
-		return fileExtensions[ext]
-	}
-
-
-
-	/*
-	* Make sure file exists, and by default update it's modified time
-	*
-	* @return Promise(void,err)
-	* @async
-	*/
-	function touchPromise(path,setModified=true){
-		return existsPromise(path,'file')
-			.then(exists=>{
-				var {promise,resolve,reject}=cX.exposedPromise();
-				if(!exists){
-					fs.open(path, 'w', (err, fd) => {
-				    	if(err) 
-				    		return reject(err);
-				      	fs.close(fd, err => {
-				        	if(err)
-				        		return reject(err);
-				        	resolve()
-				      	});
-				    });
-				}else if(setModified){
-					fs.utimes(filename, time, time, err => {
-						if(err)
-				        	return reject(err);
-				        resolve()
-					})
+				root=resolvePath(root);
+				var rand=(Math.random()*10000000);
+				while(await fsX.existsPromise(`${root}/${rand}`,'file')){
+					rand+=1;
 				}
-				return promise;
-			})
-		;
+				resolve(`${root}/${rand}`);
+
+			}catch(err){
+				reject(log.makeError('Failed to get random file name in:',root,err));
+			}
+		});
 	}
 
+
+
 	/*
-	* Make sure file exists, and by default update it's modified time
+	* Check if a command is in the path
 	*
-	* @throws 
-	* @return void
+	* @return string|false 
 	* @sync
 	*/
-	function touch(path,setModified=true){
-		if(!existsSync(path,'file')){
-			fs.closeSync(fs.openSync(path, 'w'));
-		}else if(setModified){
-			var time = new Date();
-			fs.utimesSync(path, time, time);
+	function which(cmd){
+		try{
+			return {stdout}=cpX.execFileSync('which',cmd);
+		}catch(e){
+			return false;
 		}
-		return;
 	}
-
-
-	/*
-	* Calls native chmod but returns promise instead of requiring callback
-	*
-	* @param string path
-	* @param string perms 	NOTE: numbers will be converted to strings, ie. don't try to send numeric bitmasks, just
-	*							  regular old 755 or 600...  
-	*
-	* @return Promise(void,err)
-	*/
-	function chmodPromise(path,perms){
-		var {callback,promise}=cX.exposedPromise();
-		fs.chmod(path,String(perms),callback);
-		return promise;
-	}
-
-
-	function move(oldPath,newPath){
-		return existsPromise(oldPath)
-			.then(()=>checkReadWrite(newPath))
-			.then(()=>cX.promisifyCallback(fs.rename,oldPath,newPath))
-		;
-	}
-
 
 
 	return _exports;

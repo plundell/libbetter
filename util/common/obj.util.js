@@ -26,18 +26,14 @@ module.exports=function export_oX({_log,vX}){
 		,'extract':extract
 		,'emptyObject':emptyObject
 		,'getFirstMatchingProp':getFirstMatchingProp
-		,nestedHas
-		,'nestedGet':nestedGet
-		,'nestedSet':nestedSet
-		,nestedAssign
-		,'getChildProps':getChildProps
 		,'groupChildrenByProp':groupChildrenByProp
 		,'groupKeysByValue':groupKeysByValue
 		,'argObjToArr':argObjToArr
 		,'nestedObjToArr':nestedObjToArr
+		,nestValues
 		,'forEachNestedPrimitive':forEachNestedPrimitive
-		,'objToQueryStr':objToQueryStr
 		,fillOut
+		,fillWith
 	};
 
 
@@ -216,7 +212,7 @@ module.exports=function export_oX({_log,vX}){
 	* @return string
 	*/
 	function objectToLines(obj,delimiter='='){
-		vX.checkTypes(['object','string'],[obj,delimiter])
+		vX.checkTypes([['array','object'],'string'],[obj,delimiter])
 		return Object.entries(obj).map(([key,value])=>key+delimiter+value).join('\n');
 	}
 
@@ -240,40 +236,46 @@ module.exports=function export_oX({_log,vX}){
 
 
 	/*
-	* @param object obj 	From    {type:{shape:'round',color:'red'},weight:4}
-	* @opt string delim
+	* @param object|array from    {type:{shape:'round',color:'red'},weight:4}
+	* @opt string delim           If 'array' or 'entries' is passed then an array is returned, see vv
+	* @opt number|function depth  How many levels down to flatten (anything below is left as is). Default 30 => to prevent circle ref. 
+	*							   If a function is passed it'll be called with (address,object) and should return truthy if we continue 
+	*							   further down...
 	*
 	* @throws <ble TypeError>
-	* @return object 		To 		{'type.shape':'round','type.color':'red',weight:4}
+	* @return object|array 		To 		{'type.shape':'round','type.color':'red',weight:4}
+	*                             or    [ [['type','shape'],'round'] , [['type','color'],'red'] , ['weight',4] ]
 	*/
-	function flattenObject(obj,delim='.'){
-		vX.checkTypes(['object','string'],[obj,delim]);
+	function flattenObject(from,delim='.',depth=30){
+		var [,,t]=vX.checkTypes([['object','array'],'string',['number','function']],[from,delim,depth]);
 		try{
-			var flat={};
-			var address=[];
-			var depth=0;
-			var flattenObject_loop=(self)=>{
-				if(++depth>30){
-					throw 'CircularRef'
-				}
-				Object.entries(self).forEach(([key,value])=>{
-					if(value && typeof value=='object'){
-						address.push(key);
-						flattenObject_loop(value);
-						address.pop();
-					}else{
-						flat[address.concat(key).join(delim)]=value;
+			if(t=='number')
+
+			var continueDown=t=='number'?(address)=>{address.length<depth}:depth
+				,returnEntries=(delim=='array'||delim=='entries')
+				,flat=returnEntries?[]:{}
+				,address=[]
+				,flattenObject_loop=(self)=>{
+					for(let [key,value] of Object.entries(self)){
+						address.push(key); //make address one longer...
+						if(value && typeof value=='object' && continueDown(address,value)){ //...check if we're going down one more level...
+							flattenObject_loop(value);
+						}else{
+							if(returnEntries){
+								flat.push([address.slice(0),value]); //copy address so it doesn't change
+							}else{
+								flat[address.join(delim)]=value;
+							}
+						} 
+						address.pop(); //...make address shorter again
 					}
-				})
-			}
-			flattenObject_loop(obj);
+				}
+			;
+			flattenObject_loop(from);
 			return flat;
 			
 		}catch(err){
-			if(String(err)=='CircularRef')
-				_log.makeError("Circular ref loop while flattening object:",obj).throw();
-			else
-				_log.makeError(err).throw();
+			_log.makeError(err).throw();
 		}
 
 	}
@@ -284,53 +286,43 @@ module.exports=function export_oX({_log,vX}){
 	/*
 	* Check if an object has ANY of a list of properties
 	*
-	* @return bool
+	* @param object obj
+	* @param array arr
+	* @param string mode 	Accepted values are:
+	*							'any' - first item in $keys that exists on $obj will be returned, else null
+	*							'all' - first item in $keys that does NOT exist on $obj will be returned, else null
+	*                           'noother' - first key on $obj that does NOT exist in $arr will be returned, else null
+	*                           'exact' - if the keys on $obj doesn't match those listed in $arr exactly one will be returned, else null
+	*
+	* @return mixed|null 	The first offending/matching key, or null (@see mode)
 	*/
 	function hasOwnProperties(obj,keys,mode='any'){
 		vX.checkTypes(['object','array','string'],[obj,keys,mode]);
 		
 		switch(mode){
 			case 'any': //object contains at least one of the keys
-				for(var i=0; i<keys.length;i++){
-					if(obj.hasOwnProperty(keys[i]))
-						return true;
+				for(let key of keys){
+					if(obj.hasOwnProperty(key))
+						return key; //this "accepted key" was set on $obj
 				}
-				return false;
+				return null;
 
 			case 'all': //object contains all the keys, but optionally others as well
-				for(var i=0; i<keys.length;i++){
-					if(!obj.hasOwnProperty(keys[i]))
-						return false;
+				for(let key of keys){
+					if(!obj.hasOwnProperty(key))
+						return key; //this "required key" wasn't set on $obj
 				}
 				return true;
 
 			case 'noother': //object does not contain any other keys, but it may contain none
-				return Object.keys(obj).every(key=>keys.includes(key))
+				for(let key of Object.keys(obj)){
+					if(!keys.includes(key))
+						return key; //this key isn't included in the "approved $keys array"
+				}
 
 			case 'exact':
 				return hasOwnProperties(obj,keys,'noother') && hasOwnProperties(obj,keys,'all');
 
-			case 'array':
-				var ret=[];
-				for(var i=0; i<keys.length;i++){
-					if(obj.hasOwnProperty(keys[i]))
-						ret.push(keys[i]);
-				}
-				if(!ret.length)
-					return null;
-				else
-					return ret;
-
-			case 'object':
-				var ret={};
-				for(var i=0; i<keys.length;i++){
-					if(obj.hasOwnProperty(keys[i]))
-						ret[keys[i]]=obj[keys[i]];
-				}
-				if(!Object.keys(ret).length)
-					return null;
-				else
-					return ret;
 			default:
 				throw new Error("Unrecognized mode: "+mode);
 
@@ -502,11 +494,11 @@ module.exports=function export_oX({_log,vX}){
 			switch(err.code){
 				case 'TypeError':
 					throw err;
-				case 'EFAULT':
 				case 'EMISMATCH':
 					return false;
 				default:
-					log.throwCode("BUGBUG",'nestedGet() threw an unexpected error:',err);
+					log.error("BUGBUG",'nestedGet() threw an unexpected error:',err);
+					return false;
 			}
 		}
 	}
@@ -518,11 +510,11 @@ module.exports=function export_oX({_log,vX}){
 	* NOTE: $keypath will be altered by this function, containing any remaining keys after recursion has happened to the available depth
 	*
 	* @param array|object obj
-	* @param array keypath 					Array of keys, each pointing to one level deeper. 
+	* @param array keypath 					Array of keys, each pointing to one level deeper. GETS ALTERED
 	* @param bool returnLastObject 			Default false => if a nested property doesn't exist, undefined will be returned. 
 	*											true=>the last existing object will be returned and the keypath reflects
-	*											the remaining keys
-
+	*											the remaining keys. If keypath is empty we know we got everything
+	*
 	* @throws <ble TypeError> 		If $keypath is not an array
 	* @throws <ble EMISMATCH> 		If there is a non-object along keypath
 	*
@@ -559,7 +551,6 @@ module.exports=function export_oX({_log,vX}){
 	}
 
 
-
 	/*
 	* Set a nested child on a multi-level object or array
 	*
@@ -576,9 +567,9 @@ module.exports=function export_oX({_log,vX}){
 	* @return mixed  			The value set
 	*/
 	function nestedSet(obj,keys,value,create=false){
-		// _log.traceFunc(arguments);
-		//First check arg#2, and use it to get the object we're setting on
-		vX.checkType('array',keys); //throw typeerror
+		
+		vX.checkTypes([['object','array'],'array'],[obj,keys]); //throw typeerror
+
 		var key=keys.pop();
 		if(!key)
 			_log.throwCode("EINVAL","No keys specified, cannot set value on object: ",value,obj);
@@ -588,7 +579,7 @@ module.exports=function export_oX({_log,vX}){
 
 		//Get the nested object we'll be setting on (also works if $keys are now empty)
 		var subobj=nestedGet(obj,keys,true); //true=>return last existing object so we can create the 
-		let address=_keys.splice(-keys.length).join(); //_keys=[1,2,3]  keys=[2,3]  =>  1.2
+		let address=_keys.splice(-keys.length).join('.'); //_keys=[1,2,3]  keys=[2,3]  =>  1.2
 		if(create){											//      rest here
 			//If any keys didn't exist, we create them now
 			var k;
@@ -611,96 +602,7 @@ module.exports=function export_oX({_log,vX}){
 		return subobj[key]=value;
 	}
 
-	/*
-	* Delete a nested key
-	*
-	* @param obj array|object
-	* @param keys array 		Array of keys, each pointing to one level deeper. NOTE: this array is altered
-	*
-	* @throws TypeError 		If $keys is not an array
-	* @throws EINVAL 			If $keys is empty
-	* @throws EMISMATCH 		Somewhere along the path is a non-object
-	*
-	* @return any 				The old value
-	*/
-	function nestedDelete(obj,keys){
-		vX.checkType('array',keys); //throw typeerror
-		var key=keys.pop();
-		if(!key)
-			_log.throwCode("EINVAL","No keys specified, what exactly do you want to delete from: ",obj);
 
-		//Get the last object... and if that doesn't exist then no problems, the thing we're trying to delete is already gone
-		var subobj=nestedGet(obj,keys);
-		if(subobj==undefined)
-			return undefined;
-
-		//Now get the old value, then delete, then return
-		var old=subobj[key];
-		delete subobj[key];
-		return old;
-	}
-
-
-
-	/*
-	* Assign to nested objects without overwriting non-mentioned props
-	*
-	* @param object target 	The object that gets changed
-	* @param object obj 	The object with new data to be assigned to $target
-	*
-	* {type:{				{type:{					{type:{
-	*	shape:'round'   +     	color:'blue'	=		shape:'round'
-	*	,color:'red'}		}}							,color:'blue'}
-	* ,weight:4}    								,weight:4}
-	*
-	* @throws <ble TypeError>
-	*
-	* @return object 		$target
-	*/
-	function nestedAssign(target,data){
-		vX.checkTypes(['object','object'],arguments);
-		var delim='<&@%>'; //any random string that is sure not to exist in a key
-		var arr=flattenObject(data,delim);
-		Object.entries(arr).forEach(([address,value])=>nestedSet(target,address.split(delim),value,'create'));
-		return target;
-	}
-
-
-	/*
-	* Get prop from each nested child object in an object
-	*/
-	function getChildProps(obj,prop,onMissing){
-		var ret={}
-			,types=vX.checkTypes([['object','array'],['string','array']],[obj,prop])
-		;
-		
-		//So we don't have to check on every prop, do 1 of 2 loops
-		if(types[1]=='string'){
-			//...getting prop on the base object
-			Object.entries(obj).forEach(([key,child])=>{
-				if(child.hasOwnProperty(prop))
-					ret[key]=child[prop]
-				else if(arguments.length==3) //this allows anything to be passed, even undefined... but if the argument is omitted, missing keys are too
-					ret[key]=onMissing
-			})
-		}else{
-			//Get nested prop
-			Object.entries(obj).forEach(([key,child])=>{
-				try{
-					var val=nestedGet(child,prop);
-				}catch(err){
-					val=undefined
-				}
-
-				//Loop early if the prop doesn't exist and arg#3 is undef
-				if(val==undefined && onMissing==undefined)
-					return;
-				
-				ret[key]=val
-			})
-		}
-		return ret;
-	}
 
 	/*
 	* From: 
@@ -712,46 +614,96 @@ module.exports=function export_oX({_log,vX}){
 	*
 	* To:
 	*	{											{
-	*		Male:{										Male:{
+	*		Male:{										Male:[
 	*			Bob:{age:44,gender:'Male'}					0:{age:44,gender:'Male'}
 	*			,Steve:{age:82,gender:'Male'}				,1:{age:82,gender:'Male'}
-	*		}											}
-	*		,Female:{									,Female:{
+	*		}											]
+	*		,Female:{									,Female:[
 	*			Sue:{age:24,gender:'Female'}				2:{age:24,gender:'Female'}
-	*		}											}
-	*	}		
+	*		}											]
+	*	}		                                     }              ^NOTE: array passed in, object of arrays returned
 	*
-	* @param 									
+	*
+	* @param object|array obj             NOTE: Altered if $extractProp is passed, see below
+	* @param string|number prop           The property on each child of $obj to look for and group by
+	* @opt @any-order ...optional
+	*   flag          'alter'        	   Children with $prop will be removed from $obj + child[$prop] will be deleted
+	*   flag          'keepIndex'          Grouped items retain their index in $obj, eg. $obj[2][$prop] => @return[$prop][2] instead of @return[$prop][0]
+	*   string|number groupOnMissingProp   Group to use if child doesn't have $prop. Default behaviour is to ignore this child
+	*
+	* @return object	    A new object with								
 	*/
 	function groupChildrenByProp(obj,prop,...optional){
-		vX.checkTypes([['object','array'],'string'],[obj,prop])
+		vX.checkTypes([['object','array'],['string','number']],[obj,prop])
 		
-		var onMissing='undefined',extract=false;
+		//Parse optional args
+		var groupOnMissingProp,alter=false,keepIndex=false;
 		optional.forEach((x,i)=>{
 			switch(typeof x){
-				case 'boolean': 
-					extract=x; break;
-				case 'number':
 				case 'string': 
-					if(x=='extract')
-						extract=true;
-					else
-						onMissing=x; 
+					if(x=='alter'){
+						alter=true;
+						break;
+					}
+					else if(x=='keepIndex'){
+						keepIndex=true;
+						break;
+					}else if(!x){
+						break; //empty string is nothing
+					}
+
+
+					//fall through...
+				case 'number':
+					groupOnMissingProp=x; 
+				     //^DevNote: keys kan only be string|number
 					break;
 				default:
-					log.makeError(`Arg #${i+2} can be string/number/boolean, got:`,x).throw('TypeError');
+					log.makeError(`Arg #${i+2} can be string/number, got:`,x).throw('TypeError');
 			}
 		})
 
-		var ret={};
-		Object.entries(obj).forEach(([key,child])=>{
-			var v=child[prop]||onMissing;
-			v=(typeof v=='number'?v:String(v));
-			ret[v]=ret[v]||{}
-			ret[v][key]=child;
-			if(extract) delete child[prop];
+		var groups={},useArray=Array.isArray(obj);
+		Object.entries(obj).reverse().forEach(([key,child])=>{
+			
+			//First we need a group key...
+			if(child.hasOwnProperty(prop)){
+				//Grab the value of the prop on the child
+				var groupKey=child[prop];
+
+				//If we're altering...
+				if(alter){
+					//Remove the child from $obj
+					if(useArray && !keepIndex)
+						obj.splice(key,1)
+					else
+						delete obj[key];
+
+					//Remove the prop from within the child so it'd only listen in one place: directly on $groups
+					delete child[prop];
+				} 
+
+			}else if(groupOnMissingProp){
+				groupKey=groupOnMissingProp
+			}else{
+				//ignore this child
+				return;
+			}
+			
+			//Then we make sure said key exists on the return object
+			if(!groups[groupKey])
+				groups[groupKey]=useArray?[]:{};
+			
+
+			//Finally we add the child to that group
+			if(useArray && !keepIndex){
+				groups[groupKey].push(child); //default behaviour is to NOT keep indexes for child arrays (so length shows correct)
+			}else{
+				groups[groupKey][key]=child;
+			}
 		})
-		return ret;
+
+		return groups;
 	}
 
 	/*
@@ -780,7 +732,17 @@ module.exports=function export_oX({_log,vX}){
 
 
 
-
+	/*
+	* From:
+	*	{
+	*		foo:'bar'
+	*		,cat:true
+	*		,hat:'bar'
+	*	}
+	*
+	*  To:
+	*  	['foo','bar','cat',true,'hat','bar']
+	*/
 	function argObjToArr(obj){
 		var arr=[], key;
 
@@ -811,6 +773,30 @@ module.exports=function export_oX({_log,vX}){
 		return arr;
 	}
 
+
+	/*
+	* Nest every value in an flat object
+	* 
+	* {a:1,b:2}  =>  {a:{id:1},b:{id:2}}
+	*
+	* @param object|array obj 	
+	* @opt string|number  prop 		Default 'id'. The name of the prop in each new nested object which hold the original value
+	* @opt boolean        create 	Default false => alter the passed in $obj, true=>create a new object
+	*
+	* @return object|array      
+	*/
+	function nestValues(obj,prop='id',create=false){
+		vX.checkTypes([['object','array'],['number','string']],[obj,prop]);
+		var ret=create?new obj.constructor():obj;
+		for(let key in obj){
+			let x={};
+			x[prop]=obj[key];
+			ret[key]=x
+		}
+		return ret;
+	}
+
+
 	/*
 	* @param object|array obj 
 	* @param function callback 	Will be called with the current object and the key
@@ -836,65 +822,42 @@ module.exports=function export_oX({_log,vX}){
 
 
 
-
 	/*
-	* Turn an object into a legal query string
+	* Fill out an object with keys/values from another, not overwriting anything
 	*
-	* @param object obj 	Eg. {hello:"bob",foo:["bar","car"]}
+	* @param object|array	target 		The object we'll be making changes to. NOTE: The passed in object will be altered
+	* @param object|array  filler  		An object with values to use when $target doesn't have any
 	*
-	* @see string.util.js:queryStrToObj()
-	*
-	* @throw <ble.TypeError>
-	* @return string 		Eg. "hello=bob&foo[]=bar,car". NOTE: no leading '?' or '#'
+	* @return object|array	$target
 	*/
-	function objToQueryStr(obj){
-		vX.checkType('object',obj);
-		var parts=[],key,value;
-		for(key in obj){
-			value=obj[key];
-			
-			//For all-primitive, arrays we use the special syntax: key[]=item1,item2
-			if(Array.isArray(value) && vX.allPrimitive(value)){
-				key+='[]'
-				value=value.join(',');
-			}
+	function fillOut(target, filler){
+		vX.checkType(['object','array'],target);
 
-			if(typeof value=='object'){
-				value=JSON.stringify(obj);
-			}
+		//First grab all the enumerable key/values from the $target...
+		var orig=Object.assign({},target);
 
-			//Empty string, null and undefined all get turned into empty string
-			if(vX.isEmpty(value,null)){ //null is normally considered non-empty
-				value=''
-			}
-			parts.push(key+'='+encodeURIComponent(value));
-		}
-		return parts.join('&');
+		//...then assign all the fillers, ending with the original
+		return Object.assign(target, filler, orig);
 	}
 
 
 
 
 	/*
-	* Fill out an object with keys/values from another, not overwriting anything
+	* Fill out an object with keys and a single value, not overwriting anything
 	*
-	* @param object 		target 		The object we'll be making changes to. NOTE: The passed in object will be altered
-	* @param objects|arrays ...fillers  One or more objects containing data to fill out $target with
+	* @param object|array 	target 		The object we'll be making changes to. NOTE: The passed in object will be altered
+	* @param array          keys 		An array of strings/numbers
+	* @param any 			value 		The value to set on all $keys
+	* @opt boolean 			copyValue 	true=>copy the value, false=>assign same ref to each key
 	*
-	* @return object 		$target
+	* @return object|array	$target
 	*/
-	function fillOut(target, ...fillers){
-		//Just like with Object.assign() we allow as many fillers as you like
-		vX.checkType('object',target);
+	function fillWith(target,keys,value,copyValue=true){
+		vX.checkTypes([['object','array'],'array'], [target,keys]);
+		//FutureDev: cannot be an that you grab keys from objects, since same handling for objects/arrays then doesn't apply
 
-		//Grab copies of all fillers that don't include the keys of the target
-		var keysToExclude=Object.keys(target);
-		for(let i=0;i<fillers.length;i++){
-			fillers[i]=subobj(fillers[i],keysToExclude,'isUndefined')
-		}
-
-		//Now assign...
-		return Object.assign(target,...fillers);
+		return fillOut(target,objCreateFill(keys,value,copyValue));
 	}
 
 

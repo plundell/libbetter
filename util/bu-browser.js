@@ -11,58 +11,41 @@
 module.exports=function exportBetterUtilBrowser(dep){
 
     //Pass all deps straight on to cX
-    const cX=require('./bu-common.js')(dep);
+    const bu=require('./bu-common.js')(dep);
 
-    //Rename the log
-    const _log = cX._log;
-
-
-
-
-
-
-    //Some browser-version functions moved from cX
-    cX.timerStart=function timerStart(){
-        return window.performance.now()
+    //Unlike on node, here we combine all files onto a single object, so we can pass that object
+    //as the single dependency to all of them. The only order we need to worry about is creating
+    //the styles AFTER styling.util.js has loaded
+    var styles={};
+    function handle(name,x){
+        if(x._styles)
+            styles[name]=x._styles;
+        Object.assign(bu,x);
     }
 
-    cX.timerStop=function timerStop(start,format){
-        var nano=(window.performance.now()-start)*1000000;
-        return cX.formatNano(nano,format);
-    }
+    handle('document',require('./browser/document.util.js')(bu));
+	handle('rest',require('./browser/rest.util.js')(bu));
+    handle('domevents',require('./browser/domevents.util.js')(bu));
+	handle('elements',require('./browser/elements.util.js')(bu));
+	handle('styling',require('./browser/styling.util.js')(bu));
+	handle('mobile',require('./browser/mobile.util.js')(bu));
+
+  
 
 
-
-
-
-
-
-    const docX=require('./browser/document.util.js')({cX,_log});
-
-	const restX=require('./browser/rest.util.js')({cX,_log});
-    const evtX=require('./browser/domevents.util.js')({cX,_log});
-
-	const elemX=require('./browser/elements.util.js')({cX,_log,evtX});
-    
-	const styleX=require('./browser/styling.util.js')({cX,_log,elemX});
-	const mobX=require('./browser/mobile.util.js')({cX,_log,elemX});
-
-
-    //Combine everything onto the same object
-    var bu=Object.assign(cX,elemX,styleX,mobX,restX,evtX,docX);
-
-    //Apply any styles specified in the various modules^
+    //Apply any styles specified in the various modules^ (this runs in the browser)
     delete bu._styles;
-    Object.entries(Object.assign({},elemX._styles,styleX._styles,mobX._styles,restX._styles,evtX._styles))
-        .forEach(([name,styles])=>{
-            try{
-                _log.debug("Adding style: "+name);
-                Object.entries(styles).forEach(([selector,css])=>bu.createCSSRule(selector,css));
-            }catch(err){
-                // console.warn(bu);
-                _log.error("BUGBUG: failed to apply style",name,styles,err);
-            }
-        })
+    Object.entries(styles).forEach(([name,styles])=>{
+        try{
+            bu._log.debug("Adding style: "+name);
+            Object.entries(styles).forEach(([selector,css])=>bu.createCSSRule(selector,css));
+        }catch(err){
+            // console.warn(bu);
+            bu._log.error(`BUGBUG: failed to apply styles from ${name}.util.js:`,styles,err);
+        }
+    })
+
+
 
     //Since this module is exclusivly used in the browser, we also set the exported
     //object on the passed in one, that way if dep==window it will automatically be
@@ -72,6 +55,7 @@ module.exports=function exportBetterUtilBrowser(dep){
     return bu;
 
 }
+
 
 
 

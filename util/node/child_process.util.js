@@ -109,7 +109,7 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 		}
 
 		//Log depending on options
-		if(options.log && options.log._isLog){
+		if(typeof options.log=='object' && options.log && options.log._isBetterLog){
 			options.log.info("About to run: "+obj.cmd);
 			delete options.log;
 		}else if(options.noLog){
@@ -164,7 +164,8 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 	*
 	* @params @see _execPrepare
 	*
-	* @throw <ble> 			Also has props of @return
+	* @throw <ble> 			If cmd exits with error. Also has props of @return
+	*
 	* @return object 		{stdout, stderr, duration, signal, code} 	
 	* @access public
 	*/
@@ -505,7 +506,6 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 		var wasReadable=false;
 		child.stdout.once('readable',()=>{
 			wasReadable=true;
-			let length=`${child.stdout.readableLength} ${child.stdout.readableObjectMode ? 'objects':'bytes'}`;
 			setTimeout(function spawnReadable_onReadable(){
 				if(child.stdout.readable){ 
 				  //^is true as long as stream has not been destroyed or emitted 'end' or 'error' (but does not mean there is data right now)
@@ -513,7 +513,8 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 					child.emit('readable',child.stdout);
 				}else{
 					//Log a warning
-					log.warn(`${child.who}: stdout became readable with ${length}, but became unreadable within 10ms`);
+					let length=`${child.stdout.readableLength} ${child.stdout.readableObjectMode ? 'objects':'bytes'}`;
+					log.warn(`${child.who}: stdout became readable NOW (with ${length}), but became unreadable within 10ms`);
 				}
 			},10)
 		});

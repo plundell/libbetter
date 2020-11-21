@@ -9,7 +9,7 @@
 *
 * This module is required by bu-browser
 */
-module.exports=function export_elemX({cX,_log,evtX}){
+module.exports=function export_elemX(bu){
 
 	
 
@@ -20,7 +20,13 @@ module.exports=function export_elemX({cX,_log,evtX}){
 		,'hasSubAttributes':hasSubAttributes
 		,'getLiveElement':getLiveElement
 		,'getLiveElements':getLiveElements
-		,'stringToHtml':stringToHtml
+		,getElementsArray
+		,getAllElements
+		
+		,stringToFragment
+		,stringToNode
+
+		,datasetProxy
 		,'subDataset':subDataset
 		,'extractDatasetProp':extractDatasetProp
 		,'getDatalist':getDatalist
@@ -32,6 +38,7 @@ module.exports=function export_elemX({cX,_log,evtX}){
 		,createInput
 		,addSubmitChangesToInput
 		,addInputOptions
+		,replaceInputOptions
 		,addInputOption
 		,'setValueOnElem':setValueOnElem
 		,'getValueFromElem':getValueFromElem
@@ -41,6 +48,7 @@ module.exports=function export_elemX({cX,_log,evtX}){
 		,'setFirstTextNode':setFirstTextNode
 		,'countParentNodes':countParentNodes
 		,'isDescendantOf':isDescendantOf
+		,addClass
 		,'removeClass':removeClass
 		,'prependChild':prependChild
 		,'createTable':createTable
@@ -53,6 +61,7 @@ module.exports=function export_elemX({cX,_log,evtX}){
 		,getOrigin
 		,nodeType
 		,multiQuerySelector
+		,sortByDepth
 	}
 
 
@@ -76,8 +85,8 @@ module.exports=function export_elemX({cX,_log,evtX}){
 		var data={};
 		Array.from(elem.attributes).forEach(attr=>{
 			if(attr.name.substring(0,l)==prefix){
-				let value=elem.getAttribute(attr.name);
-				value=(value===''?undefined:cX.stringToPrimitive(value));
+				let value=bu.stringToPrimitive(elem.getAttribute(attr.name));
+				value=value===''?undefined:value;
 				data[attr.name.substring(l)]=value;
 				
 				if(extract)
@@ -98,7 +107,7 @@ module.exports=function export_elemX({cX,_log,evtX}){
 	* @return bool  				True if any such attributes exist, else false
 	*/
 	function hasSubAttributes(elem,prefix){
-		return !cX.isEmpty(getSubAttributes(elem,prefix));
+		return !bu.isEmpty(getSubAttributes(elem,prefix));
 	}
 
 
@@ -154,15 +163,15 @@ module.exports=function export_elemX({cX,_log,evtX}){
 	* @return <HTMLElement>			The live element. By default an error is thrown on fail, but @see $returnNull
 	*/
 	function getLiveElement(x,returnNull=false){
-		// _log.traceFunc(arguments,'getLiveElement');
-		var type = cX.varType(x), node,nodes; 
+		// bu._log.traceFunc(arguments,'getLiveElement');
+		var type = bu.varType(x), node,nodes; 
 		switch(type){
 			case "node":
 				return x
 			case "string":
 				if(x.substring(0,1)=='<'){
-					// _log.debug("Got html string, turning into live node");
-					return stringToHtml(x); //throws on bad html //new element is adopted into local DOM
+					// bu._log.debug("Got html string, turning into live node");
+					return stringToNode(x); //throws on bad html //new element is adopted into local DOM
 				}else{
 					//First check if it starts with '#' since querySelectorAll won't work if the string also
 					//contains characters like ':'
@@ -173,12 +182,12 @@ module.exports=function export_elemX({cX,_log,evtX}){
 						else if(returnNull)
 							return null;
 						else
-							_log.makeError("Found no element with id: "+x.substr(1)).throw();
+							bu._log.makeError("Found no element with id: "+x.substr(1)).throw();
 					}
 
 					//Then try it as an id
 					node=document.getElementById(x);
-					if(cX.varType(node)=='node')
+					if(bu.varType(node)=='node')
 						return node;
 
 					//then try it as a query selector
@@ -186,52 +195,51 @@ module.exports=function export_elemX({cX,_log,evtX}){
 					let l=nodes.length;
 					if(l){
 						if(l>1){
-							_log.note(`Multiple elements matched css selector '${x}', only returning first:`,nodes);
+							bu._log.note(`Multiple elements matched css selector '${x}', only returning first:`,nodes);
 						}
 						return nodes[0];
 					}
 					if(returnNull)
 						return null;
 					else
-						_log.throwCode('ENOTFOUND',"Found no element matching (id or css selector): "+x);
+						bu._log.throwCode('ENOTFOUND',"Found no element matching (id or css selector): "+x);
 				}
 			case "nodelist":
 				nodes=Array.from(x);
 				let l=nodes.length;
 				if(l){
 					if(l>1){
-						_log.note(`Nodelist with ${l} nodes passed in, only returning first:`,nodes);
+						bu._log.note(`Nodelist with ${l} nodes passed in, only returning first:`,nodes);
 					}
 					return nodes[0];
 				}
 				if(returnNull)
 					return null;
 				else
-					_log.throwCode('ENOTFOUND',"Empty nodelist passed in");
+					bu._log.throwCode('ENOTFOUND',"Empty nodelist passed in");
 			case 'object':
 				//In case it's a MouseEvent from a click
-				if(x.target && cX.varType(x.target)=='node')
+				if(x.target && bu.varType(x.target)=='node')
 					return x.target;
 			default:
-				// _log.error('Unsupported varType passed in as node:', Object.prototype.toString.call(x), x)
+				// bu._log.error('Unsupported varType passed in as node:', Object.prototype.toString.call(x), x)
 				// return undefined
 				if(returnNull)
 					return null;
 				else
-					_log.throwType('html string, id, query selector, node or nodelist',x);
+					bu._log.throwType('html string, id, query selector, node or nodelist',x);
 		}
 	}
 
 	/*
-		This function returns a live element given an id or a live element. NOTE: for single element/html id, use
-		getLiveElement()
-
-		@x*: A string id corresponding to an HMTL class, or a live HTMLcollection
-
-		@return: A live HTMLcollection
+	* Get a live HTMLcollection
+	*	
+	* @param string|<HTMLcollection>  A string class or selector, or a live HTMLcollection
+	*
+	* @return <HTMLcollection> 	      A live collection
 	*/
 	function getLiveElements(x){
-		var type = cX.varType(x) 
+		var type = bu.varType(x) 
 		switch(type){
 			case "string":
 				//First assume it's a class, with or without leading '.'
@@ -242,19 +250,81 @@ module.exports=function export_elemX({cX,_log,evtX}){
 				//Then try is as a selector
 				var nodes=document.querySelectorAll(x);
 				if(!nodes.length)
-					_log.note(`No elements matched class/selector '${x}'`);
+					bu._log.note(`No elements matched class/selector '${x}'`);
+
 				return nodes; //return nodelist, empty or not
 
 			case "nodelist":
 				if(!x.length)
-					_log.note("Empty nodelist");
+					bu._log.note("Empty nodelist");
 				return x;
+
 			case "node":
-				return Array(x) //return an "HTMLcollection-like" object... ie. can be looped the same way...
+				bu._log.warn("You called getLiveElements() when you probably meant to use getLiveElement()");
 			default:
-				_log.throw('Unsupported varType passed in as element: '+type);
+				bu._log.throwType('string (html class or query selector) or a nodelist',type);
 		}
 	}
+
+
+	/*
+	* Get a static array of live elements
+	*
+	* @param mixed x    @see getLiveElement() && @see getLiveElements(). NOTE: a single string implies a class name
+	*
+	* @return array
+	*/
+	function getElementsArray(x){
+		switch(bu.varType(x)){
+			case 'array': return x.map(y=>getLiveElement(y));
+			case 'node': return [x];
+			default: return Array.from(getLiveElements(x));
+		}
+	}
+
+
+
+
+	/*
+	* Get all elements under a $top one, trimming away any under one or more $middle ones
+	*
+	* @param mixed top     @see getLiveElement()
+	* @param mixed middle  @see getElementsArray()
+	*
+	* @return array   A static list of all nodes between the $top and $middle (inclusive)
+	*/
+	function getAllElements(top,excludeDescendentsOf){
+		top=getLiveElement(top);
+		if(excludeDescendentsOf)
+			excludeDescendentsOf=getElementsArray(excludeDescendentsOf); 
+
+		//Get all nodes from the top down (inclusive)
+		var all=Array.from(top.getElementsByTagName("*"));
+		all.push(top);
+
+		if(excludeDescendentsOf){
+			//Get all nodes from all the middle-points down (inclusive)
+			var nested=middle.map(elem=>Array.from(elem.getElementsByTagName('*'))).flat().concat(middle); 
+
+			//Now loop over those $nested elems and remove them from the list of $all elements
+			while(nested.length){
+				let i=all.indexOf(nested.shift());
+				if(i>-1) //since things may be multi-nested the nested elem may already have been removed
+					all.splice(i,1)
+			}
+		}
+
+		return all;
+	}
+
+
+
+
+
+
+
+
+
 
 
 
@@ -264,19 +334,28 @@ module.exports=function export_elemX({cX,_log,evtX}){
 	/*
 	* @param string
 	* @throw <ble TypeError> 	Not a string
+	* @return <DocumentFragment>
+	*/
+	function stringToFragment(str){
+	    if(typeof str!='string')
+	        throw new TypeError("Expected HTML string got "+typeof str);
+	    var temp=document.createElement('template');
+	    temp.innerHTML=str;
+	    return temp.content;
+	}
+
+
+	/*
+	* @param string
+	* @throw <ble TypeError> 	Not a string
 	* @throw <ble SyntaxError> 	Malformated html string
 	* @return <HTMLElement>
 	*/
-	function stringToHtml(htmlStr){
-		cX.checkType('string',htmlStr);
-		var wrapper=document.createElement('div');
-		wrapper.innerHTML=htmlStr; //NOTE: different browsers will attempt to deal with malformed html differently, so make sure to pass good HTML
-		var node=wrapper.children[0];
-		var t=cX.varType(node)
-		if(t!='node')
+	function stringToNode(str){
+		var frag=stringToFragment(str);
+		if(bu.varType(frag.firstElementChild)!='node')
 			this.log.makeError("Bad HTML string, could not create HTMLElement").setCode("SyntaxError").throw();
-		return node;
-		
+		return frag.firstElementChild;
 	}
 
 
@@ -290,14 +369,72 @@ module.exports=function export_elemX({cX,_log,evtX}){
 
 
 
+	/*
+	* Creates a proxy of an object (single level) which is stored on an elements dataset
+	*
+	* @param <HTMLElement> elem   
+	* @param string key           The key to use on the dataset
+	* @opt object|array template  The object to use as a template for the proxied object, however this obj will
+	*                             not be linked to the proxied object or the element
+	*
+	* @return <Proxy>
+	*/
+	function datasetProxy(elem,key,template){
+		bu.checkTypes(['node',['string','number']],[elem,key]);
 
+		function read(){return JSON.parse(elem.dataset[key])}
+		function write(data){elem.dataset[key]=JSON.stringify(data)}
 
+		var handler={
+			set:function(ignore,prop,value){
+				//Ignore the proxied object and instead read a copy from the element
+				var data=read();
 
+				//Then set on the element
+				data[prop]=value;
+				write(data);
 
+				//And return as expected so any other methods we're not proxying works
+				return value;
+			}
+			,get:function(ignore,prop){
+				//Ignore the proxied object and instead read a copy from the element
+				return read()[prop];
+			}
+			,has:function(ignore,prop){
+				return read().hasOwnProperty(prop);
+			}
+			,deleteProperty:function(ignore,prop){
+				//Ignore the proxied object and instead read a copy from the element
+				var data=read();
 
+				//Then delete and set back on the element
+				let deleted=delete data[prop];
+				write(data);
 
+				//And return as expected so any other methods we're not proxying works
+				return deleted;
+			}
+		};
 
+		if(!template || template=='object')
+			template={};
+		else if(template=='array')
+			template=[]
+		else{
 
+			template=new template.constructor();
+		}
+
+		//Now that we have an empty template, create and return the proxy
+		let proxy=new Proxy(template,handler);
+		
+		//If any existing data exists, write it to the elem before loosing it
+		if(!bu.isEmpty(template))
+			write(template); 
+
+		return proxy;
+	}
 
 
 
@@ -315,8 +452,8 @@ module.exports=function export_elemX({cX,_log,evtX}){
 	* @return object
 	*/
 	function subDataset(node, datasetAttr, deleteAfterFetch=false){
-		_log.trace( 'subDataset() called with args: ', arguments)
-		cX.checkTypes(['node','string'],[node,datasetAttr]);
+		bu._log.trace( 'subDataset() called with args: ', arguments)
+		bu.checkTypes(['node','string'],[node,datasetAttr]);
 
 		var data = {} //Return object
 		var info = {entireDataset:Object.keys(node.dataset), matchedData:[], nonMatchedData:[]} //Log object to make clear what matched and what didn't
@@ -338,12 +475,12 @@ module.exports=function export_elemX({cX,_log,evtX}){
 			}
 		}
 
-		_log.trace('subDataset() finished with outcome: ', info)
+		bu._log.trace('subDataset() finished with outcome: ', info)
 		
-		if(cX.isEmpty(data)) 
-			_log.debug('No props found on node for data attr: ',datasetAttr)
+		if(bu.isEmpty(data)) 
+			bu._log.debug('No props found on node for data attr: ',datasetAttr)
 		else{
-			_log.debug('Found sub-dataset: ', data)
+			bu._log.debug('Found sub-dataset: ', data)
 		}
 		
 		return data
@@ -386,7 +523,7 @@ module.exports=function export_elemX({cX,_log,evtX}){
 	* @return void
 	*/
 	function setDataset(elem,data){
-		cX.checkTypes(['node',['object','array']],arguments);
+		bu.checkTypes(['node',['object','array']],arguments);
 		Object.entries(data).forEach(([key,value])=>elem.dataset[key]=(typeof value=='object'?JSON.stringify(value):value))
 	}
 
@@ -426,7 +563,7 @@ module.exports=function export_elemX({cX,_log,evtX}){
 		@return - An array of strings
 	*/
 	function getIdsFromNodelist(nodelist){
-		if(cX.varType(nodelist)=='nodelist'){
+		if(bu.varType(nodelist)=='nodelist'){
 
 			var idList = [] //return array
 
@@ -436,7 +573,7 @@ module.exports=function export_elemX({cX,_log,evtX}){
 
 			return idList;
 		} else {
-			_log.warn('Unsupported format ('+_vars.varType(nodelist)+') passed to getIdsFromNodelist: ', nodelist)
+			bu._log.warn('Unsupported format ('+_vars.varType(nodelist)+') passed to getIdsFromNodelist: ', nodelist)
 			return false
 		}
 
@@ -461,7 +598,7 @@ module.exports=function export_elemX({cX,_log,evtX}){
 	function getJsonAttr(node,attr,extract=false){
 
 		//Validate args
-		cX.checkTypes(['node','string'],[node,attr]);
+		bu.checkTypes(['node','string'],[node,attr]);
 
 		//...else read them a-new...
 		var str=node.getAttribute(attr)
@@ -477,7 +614,7 @@ module.exports=function export_elemX({cX,_log,evtX}){
 		}catch(err){
 			node.setAttribute(attr+'-fail',str);
 			if(!extract) node.removeAttribute(attr);
-			_log.makeEntry('warn',`Attribute '${attr}' contained bad JSON:`,err.message,node).throw('SyntaxError');
+			bu._log.makeEntry('warn',`Attribute '${attr}' contained bad JSON:`,err.message,node).throw('SyntaxError');
 		}
 	}
 
@@ -499,7 +636,7 @@ module.exports=function export_elemX({cX,_log,evtX}){
 	*/
 
 	function createElement(tagName){
-		cX.checkType('string',tagName);
+		bu.checkType('string',tagName);
 		tagName=tagName.toLowerCase();
 		if(createElement.inputTypes.includes(tagName))
 			return createInput('',tagName);
@@ -533,14 +670,14 @@ module.exports=function export_elemX({cX,_log,evtX}){
 	function createInput(name,type='text',items=null){
 
 		items=items||[]
-		cX.checkTypes(['string','string','array'],[name,type,items])
+		bu.checkTypes(['string','string','array'],[name,type,items])
 		
 		//alias for dropdown...
 		type=(type=='select'?'dropdown':type);
 
 		var input;
 		if(createInput.hasOwnProperty(type)){
-			input=createInput[type](items); break;
+			input=createInput[type](items);
 		}else{
 			switch(type){
 				case 'textarea':
@@ -568,6 +705,8 @@ module.exports=function export_elemX({cX,_log,evtX}){
 		'radioset':'radio'
 		,'checklist':'checkbox'
 		,'dropdown':'option'
+		,'select':'option'
+		,'select-one':'option'
 	}
 
 	/*
@@ -575,16 +714,28 @@ module.exports=function export_elemX({cX,_log,evtX}){
 	*
 	* @param <HTMLElement> elem 	
 	*
+	* @throws EMISSING 	If $elem doesn't have type
+	* @throws EINVAL    If $elem has invalid type
+	*
 	* @return string
 	*/
 	function getInputOptionType(elem){
-		return createInput.optionMap[elem.type||elem.getAttribute('type')];
+		let type=elem.type||elem.getAttribute('type');
+		if(!type)
+			bu._log.throwCode("EMISSING","Elem doesn't have .type property or type= attribute.",elem);
+		
+		let inputType=createInput.optionMap[type];
+		if(!inputType)
+			bu._log.throwCode("EINVAL","Elem had an invalid type prop/attribute: "+type,elem);
+
+		return inputType;
+
 	}
 
 	createInput.radioset=function createRadioSet(items){
 		let fieldset=createFieldset('radioset');
 
-		
+		//NOTE: the number of inputs within this fieldset CAN CHANGE, that's why we use a query selector...
 		Object.defineProperty(fieldset,'value',{
 			enumerable:true
 			,get:()=>{
@@ -609,7 +760,7 @@ module.exports=function export_elemX({cX,_log,evtX}){
 		})
 
 		//Radios need to be grouped (which is how they control that only 1 is selected... so create a random group name)
-		fieldset.setAttribute('groupname',cX.randomString(10)) //10 characters should be enough...
+		fieldset.setAttribute('groupname',bu.randomString(10)) //10 characters should be enough...
 
 		addInputOptions(fieldset,items);
 
@@ -620,12 +771,13 @@ module.exports=function export_elemX({cX,_log,evtX}){
 	createInput.checklist=function createChecklist(items){
 		let fieldset=createFieldset('checklist')
 
-		//the checklist gets and sets an array
+		//The checklist gets and sets an array, ie. the return value is an array
+		//NOTE: the number of inputs within this fieldset CAN CHANGE, that's why we use a query selector...
 		Object.defineProperty(fieldset,'value',{
 			enumerable:true
 			,get:()=>Array.from(fieldset.querySelectorAll('input[type=checkbox]:checked')).map(elem=>elem.value)
 			,set:(arr)=>{
-				if(cX.checkType(['primitive','array'],arr)!='array'){
+				if(bu.checkType(['primitive','array'],arr)!='array'){
 					arr=[arr];
 				}
 				//Set the state of each checkbox according to the array (ie. unselect all not mentioned)
@@ -646,34 +798,21 @@ module.exports=function export_elemX({cX,_log,evtX}){
 		
 		//Populate it...
 		select.setAttribute('type','dropdown'); //so addInputOptions() knows whats up
-		addInputOptions(select);
+		addInputOptions(select,options);
 
 		return select;
 	}
 
-	_exports._styles.toggleSliderCss=Object.freeze({
-		'.toggle-wrapper':'position: relative;display: inline-block;width: 2em;height: 1em; border:0 none;padding:0;'
-		,'.toggle-wrapper input':'opacity: 0;width: 0;height: 0;display:block;' //if 'block' is removed then <span> sits under <input>
-		,'.toggle-slider':'position: absolute;cursor: pointer;top: 0;left: 0;right: 0;bottom: 0;border-radius: 1em;background-color: #ccc;-webkit-transition: .4s;transition: .4s;'
-		,'.toggle-slider:before':'position: absolute;content: "";height: 0.8em;width: 0.8em;left: 0.1em;bottom: 0.09em;background-color: white;-webkit-transition: .4s;transition: .4s;border-radius: 50%;'
-		,'input:checked + .toggle-slider':'background-color: #2196F3;'
-		,'input:focus + .toggle-slider':'box-shadow: 0 0 1px #2196F3;'
-		,'input:checked + .toggle-slider:before':'-webkit-transform: translateX(1em);-ms-transform: translateX(1em);transform: translateX(1em);'
-	})
+
 	createInput.toggle=function createToggle(){
-		//This is another special case where we'll need >1 elem so we wrap it in a fieldset. This also gives
-		//us the oppertunity to link the .value to the underlying .checked
-		let fieldset=createFieldset('toggle',createElement('checkbox'))
-
-
-		//Allow accessing the checked state of the internal checkbox with a .value prop on the wrapper
+		var fieldset=createFieldset('toggle')
+		var checkbox=createElement('checkbox');
+		fieldset.appendChild(checkbox);
 		Object.defineProperty(fieldset,'value',{
 			enumerable:true
-			,get:()=>fieldset.querySelector('input[type=checkbox]').checked
-			,set:(check)=>{fieldset.querySelector('input[type=checkbox]').checked=check?true:false}
+			,get:()=>checkbox.checked
+			,set:(check)=>{return checkbox.checked=(check?true:false)}
 		})
-
-		//In order for something to differentiate a 'toggle' from a regular checbox we add a method
 		fieldset.toggle=()=>fieldset.value=!fieldset.value
 
 
@@ -691,6 +830,14 @@ module.exports=function export_elemX({cX,_log,evtX}){
 		return fieldset;
 	}
 
+	_exports._styles['.toggle-wrapper']='position: relative;display: inline-block;width: 2em;height: 1em; border:0 none;padding:0;'
+	_exports._styles['.toggle-wrapper input']='opacity: 0;width: 0;height: 0;display:block;' //if 'block' is removed then <span> sits under <input>
+	_exports._styles['.toggle-slider']='position: absolute;cursor: pointer;top: 0;left: 0;right: 0;bottom: 0;border-radius: 1em;background-color: #ccc;-webkit-transition: .4s;transition: .4s;'
+	_exports._styles['.toggle-slider:before']='position: absolute;content: "";height: 0.8em;width: 0.8em;left: 0.1em;bottom: 0.09em;background-color: white;-webkit-transition: .4s;transition: .4s;border-radius: 50%;'
+	_exports._styles['input:checked + .toggle-slider']='background-color: #2196F3;'
+	_exports._styles['input:focus + .toggle-slider']='box-shadow: 0 0 1px #2196F3;'
+	_exports._styles['input:checked + .toggle-slider:before']='-webkit-transform: translateX(1em);-ms-transform: translateX(1em);transform: translateX(1em);'
+
 
 	createInput.datetime=function createDateTime(options){
 		let fieldset=createFieldset('datetime');
@@ -705,9 +852,9 @@ module.exports=function export_elemX({cX,_log,evtX}){
 		//Create getter/setter on the fieldset
 		Object.defineProperty(fieldset,'value',{
 			enumerable:true
-			,get:()=>cX.makeDate(date.value,time.value) //<Date> object
+			,get:()=>{try{return bu.makeDate(date.value,time.value)}catch(err){return undefined}} //<Date> object
 			,set:(datetime)=>{
-				let date=cX.formatDate(datetime),time=cX.formatTime(datetime),str=(`${date} ${time}`).trim();
+				let date=bu.formatDate(datetime),time=bu.formatTime(datetime),str=(`${date} ${time}`).trim();
 				//Set the values of the child elements
 				date.value=date;
 				time.value=time;
@@ -746,13 +893,12 @@ module.exports=function export_elemX({cX,_log,evtX}){
 
 		//Only the fieldset should dispatch events, not the child inputs, so intercept when they bubble past and 
 		//change the event.target
-		evtX.redispatchChildEvents(fieldset,['input','change']);
+		bu.redispatchChildEvents(fieldset,['input','change']);
 
 		//If a child was passed in, pop it inside and link it's value
 		if(child){
 			child=getLiveElement(child);
-			Object.defineProperty(fieldset,'value',{
-				enumerable:true
+			Object.defineProperty(fieldset,'value',{enumerable:true,configurable:true
 				,get:()=>child.value
 				,set:(val)=>child.value=val
 			})
@@ -815,18 +961,33 @@ module.exports=function export_elemX({cX,_log,evtX}){
 	* @return <HTMLElement> $input
 	*/
 	function addInputOptions(input, items){
+		bu.checkType('node',input);
 
 		//Add the "setter" method to the fieldset (so more items can be added later)
 		input.addOption=addInputOption.bind(input);
 
-		if(cX.varType(items)!='array' || !items.length){
-			_log.note(`Creating an empty '${input.type}' input, ie. without actual <input type='${getInputOptionType(input)}'>s. Please add items later...`
+		if(bu.varType(items)!='array' || !items.length){
+			bu._log.note(`Creating an empty '${input.type}' input, ie. without actual <input type='${getInputOptionType(input)}'>s. Please add items later...`
 				,input);
 		}else{
 			items.forEach(input.addOption)
 		}
 
 		return input;
+	}
+
+	/*
+	* Replace all options for an input
+	*
+	* @param <HTMLElement> input 	A live elem that will be appended
+	* @param array items 			Array of strings or of {label,value} used to create <input> children within the $fieldset
+	*
+	* @return <HTMLElement> $input 
+	*/
+	function replaceInputOptions(input,items){
+		bu.checkType('node',input);
+		input.innerHTML='';
+		return addInputOptions(input,items);
 	}
 
 	/*
@@ -839,18 +1000,18 @@ module.exports=function export_elemX({cX,_log,evtX}){
 	* @call(<HTMLElement>) The element you want to add the option to
 	*/
 	function addInputOption(option){
-		var input=createElement(getInputOptionType(this)) //will create <option> or <input type="...">
+		var elem=createElement(getInputOptionType(this)) //will create <option> or <input type="...">
 		
 		//We wrap <input>s in a label, whereas <option>s are their own labels
-		if(input.tagName=='OPTION'){
-			var label=input;
+		if(elem.tagName=='OPTION'){
+			var label=elem;
 		}else{
 			label=document.createElement('label');
-			label.appendChild(input);
+			label.appendChild(elem);
 			
 			//Unlike <option>s we need to mark (what's expected to be) <input>s to be ignored, since the "parent input" (expected to be
 			//a <fieldset>) is the "actual" input
-			input.setAttribute('bu-ignore','');
+			elem.setAttribute('bu-ignore','');
 		}
 		
 		//For same handling turn string args into objects
@@ -858,13 +1019,13 @@ module.exports=function export_elemX({cX,_log,evtX}){
 			option={value:option};
 
 		
-		input.value=option.value;
+		elem.value=option.value;
 		setFirstTextNode(label,option.label||option.value);
 		
 
 		//Finally, some fieldsets (like radiosets) need groupname, so set that here
 		if(this.hasAttribute('groupname'))
-			input.name=this.getAttribute('groupname')
+			elem.name=this.getAttribute('groupname')
 
 		//Then append and return the newly created option
 		this.appendChild(label);
@@ -911,11 +1072,10 @@ module.exports=function export_elemX({cX,_log,evtX}){
 	* @return $elem
 	*/
 	function setValueOnElem(elem, value){
-		if(cX.checkTypes(['node',['primitive','undefined']],[elem,value])[1]=='undefined')
+		if(bu.checkTypes(['node',['primitive','undefined']],[elem,value])[1]=='undefined')
 			value='';
 
 		try{
-
 			switch(elem.tagName){
 				case 'TEXTAREA':
 				case 'SELECT':
@@ -928,26 +1088,31 @@ module.exports=function export_elemX({cX,_log,evtX}){
 							if(elem.type=='radio'){
 								//For radios, get all with the same name since that's who we're setting
 								let f=firstParentTagName('form'); //form or entire document
-								let i=f.querySelector(`input[value=${value}][name=${elem.name}]`)
-								if(i){
+								let radio=f.querySelector(`input[value=${value}][name=${elem.name}]`)
+								if(radio){
 									//If we have a match, select it...
-									i.checked=true;
+									radio.checked=true;
 								}else{
-									//...else unselect all
-									f.querySelectorAll(`input[name=${elem.name}]`).forEach(elem=>elem.checked=false);
+									//If none have the value, throw
+									bu._log.throwCode("EINVAL",`No radio with name='${elem.name}' has value='${value}', ie. cannot set.`,elem)
 								}
 
-							}else{
+							}else{ //implies checkbox
 								elem.checked=(elem.value==value)
 							} 
 						}
-						return;				
+						return;	
+
+					}else if(elem.type=='color'){
+						//Make sure we have a hex color
+						value=bu.colorToHex(value)
 					}
 					break;
 
 				case 'FIELDSET':
-					if(node.type=='radioset' || node.type=='checklist'){
-						//2020-03-23: these work like regular inputs now...
+					if(elem.hasAttribute('bu-input')){
+						//2020-03-23: these work like regular inputs with a .value prop that uses getters/setters
+						//            to access the inside value
 						break;
 					}
 
@@ -957,8 +1122,9 @@ module.exports=function export_elemX({cX,_log,evtX}){
 							//If no children exist, the value is just set inside the elem... like an empty <span> being populated
 							return setFirstTextNode(elem,value);
 						}else{
-							_log.makeError(`Cannot set value on <'${elem.tagName.toLowerCase()}'> that doesn't have a .value prop AND has children`,elem)
-								.throw('EINVAL');
+							bu._log.throwCode('EINVAL',`Cannot set value on <${elem.tagName.toLowerCase()}> that doesn't have a `
+								+'.value prop AND has children',elem);
+								
 						}
 					}
 			}
@@ -968,20 +1134,28 @@ module.exports=function export_elemX({cX,_log,evtX}){
 			elem.value=value
 			if(elem.value!=value){
 				//Some changes we are not allowed, like setting a range to null/false/undefined
-				if(elem.getAttribute('type')=='range' && !value && value!==0){
-					_log.warn(`You cannot set a range to '${value}'. Default behavior was to set it to:`,elem.value);
-					return;
+				if(elem.getAttribute('type')=='range' && typeof value!='number'){
+					bu._log.makeError(`You cannot set a range input to: ${bu.logVar(value)}`,elem)
+						.addHandling(`Default behavior was to set it to middle value, ie:`,elem.value)
+						.throw('TypeError');
 				}
-			//TODO 2020-03-27: we may want to throw ^ as well
 
-				var str=`Failed to set value of <${elem.tagName}> to '${value}', `;
-				str+=(elem.value==before ? 'it remains unchanged as ':'it was instead set to ')+`'${elem.value}'`
-				_log.makeError(str,elem).throw();
+				//Where there are options or similar, we can't select the value if it doesn't exist
+				try{
+					let type=getInputOptionType(elem);
+					bu._log.throwCode('EINVAL',`This <${elem.tagName}> doesn't have a <${type} value='${value}'>, ie. cannot set.`,elem)
+				}catch(e){
+					//this is what happens if no options exist, then just continue...
+				}
+
+				var str=`Tried to set value of <${elem.tagName}> to '${value}', but for UNKNOWN reaons `;
+				str+=(elem.value==before? 'it remains unchanged as':'it was instead set to')+` '${elem.value}'`
+				bu._log.makeError(str,elem).addHandling("Native warnings may have been supressed. Try setting it in DevTools...").throw();
 			}
 
 		}catch(err){
 			if(!err._isBLE)
-				err=_log.makeError("Failed to set value on elem",{elem,value},err).throw();
+				err=bu._log.makeError("Failed to set value on elem",{elem,value},err).throw();
 			err.throw();
 		}
 		return;
@@ -999,7 +1173,7 @@ module.exports=function export_elemX({cX,_log,evtX}){
 	* @return void
 	*/
 	function getValueFromElem(node) {
-		cX.checkType('node',node);
+		bu.checkType('node',node);
 		var val;
 		switch(node.tagName){
 			case 'INPUT':
@@ -1029,7 +1203,7 @@ module.exports=function export_elemX({cX,_log,evtX}){
 
 			default:
 				let text=getFirstTextNode(node);
-				val=(text?cX.stringToPrimitive(text.data):undefined);
+				val=(text?bu.stringToPrimitive(text.data):undefined);
 				 //TODO: maybe add json 
 		}
 
@@ -1108,7 +1282,7 @@ module.exports=function export_elemX({cX,_log,evtX}){
 					data[key]=input.value;
 				}
 			}else{
-				_log.warn("Input missing 'name' attribute, ignoring",input)
+				bu._log.warn("Input missing 'name' attribute, ignoring",input)
 			}
 		})
 		return data;
@@ -1158,7 +1332,7 @@ module.exports=function export_elemX({cX,_log,evtX}){
 		
 		var node=getFirstTextNode(elem);
 
-		if(cX.checkType(['primitive','undefined'],value)=='undefined')
+		if(bu.checkType(['primitive','undefined'],value)=='undefined')
 			value='';
 
 		if(node==undefined){
@@ -1180,7 +1354,7 @@ module.exports=function export_elemX({cX,_log,evtX}){
 	* @return node|undefined
 	*/
 	function getFirstTextNode(elem){
-		cX.checkType('node',elem);
+		bu.checkType('node',elem);
 
 
 		//If there is an existing text node, set value as first text element so as not to remove any child elements
@@ -1232,6 +1406,9 @@ module.exports=function export_elemX({cX,_log,evtX}){
 
 
 
+
+
+
 	/*
 	* Get the index of an element within it's parent
 	* 
@@ -1255,16 +1432,54 @@ module.exports=function export_elemX({cX,_log,evtX}){
 
 
 
-
 	/*
-	* Remove a class from an element, and if there are no more classes, remove the class attribute as well
-	* for a nice and clean html
+	* Add or remove classes from an element
+	*
+	* @param string method
+	* @param <arguments> args
+	*
+	* @return void
+	* @private
 	*/
-	function removeClass(elem,cls){
-		elem=getLiveElement(elem);
-		elem.classList.remove(cls);
+	function _commonClasses(method,args){
+		var elem=getLiveElement(args[0]);
+		
+		var classes=Array.from(args).slice(1).flat().map(str=>str.split(' ')).flat();
+		bu.checkTypedArray(classes,'string');
+		
+		for(let cls of classes){
+			elem.classList[method](cls);
+		}
+
 		if(!elem.classList.length)
 			elem.removeAttribute('class');
+
+		return;
+	}
+
+	/*
+	* Add one or more classes to an element
+	*
+	* @param HTMLElement   elem
+	* @params string|array classes   A space delimited string, multiple strings, an array of strings
+	*
+	* @return void
+	*/
+	function addClass(){
+		return _commonClasses('add',arguments);
+	}
+
+	/*
+	* Remove one or more classes from an element, and if there are no more classes, remove the class attribute as well
+	* for a nice and clean html
+	*
+	* @param HTMLElement   elem
+	* @params string|array classes   A space delimited string, multiple strings, an array of strings
+	*
+	* @return void
+	*/
+	function removeClass(){
+		return _commonClasses('remove',arguments);
 	}
 
 	/*
@@ -1301,7 +1516,7 @@ module.exports=function export_elemX({cX,_log,evtX}){
 	*/
 	function createTable(columns){
 		var table={columns};
-
+		var colClass={}; 
 
 
 		table._elem=document.createElement('table');
@@ -1312,12 +1527,6 @@ module.exports=function export_elemX({cX,_log,evtX}){
 		let headrow=document.createElement('tr');
 		thead.appendChild(headrow);
 		
-		//To get the real width, check every single row for the largest number of columns
-		Object.defineProperty(table,'width',{enumerable:true, get:()=>
-			Array.from(table._elem.querySelectorAll('tr'))
-				.reduce((max,tr)=>Math.max(max,tr.childElementCount()),0)
-		})
-
 		//Create a th for each column and add to return table.head
 		table.head={};
 		Object.defineProperty(table.head,'_elem',{value:headrow});
@@ -1332,9 +1541,9 @@ module.exports=function export_elemX({cX,_log,evtX}){
 		//Add body
 		const tbody=document.createElement('tbody');
 		table._elem.appendChild(tbody)
-		Object.defineProperty(table,'height',{enumerable:true, get:()=>tbody.childElementCount()})
 		table.body=[];
 		Object.defineProperty(table.body,'_elem',{value:tbody});
+
 
 		//Create a <td> with a couple of hidden methods to easily add an input or row-button
 		function createCell(row,colName,innerHTML){
@@ -1346,18 +1555,23 @@ module.exports=function export_elemX({cX,_log,evtX}){
 				,'_setValue':{value:function setCellValue(value){setValueOnElem(td._valueTarget,value)}}
 				,'_getValue':{value:function getCellValue(){return getValueFromElem(td._valueTarget)}}
 			})
-			td.innerHTML=cX.isEmpty(innerHTML,null)?'':innerHTML //null is considered empty, but 0 and false are not
+			td.innerHTML=bu.isEmpty(innerHTML,null)?'':innerHTML //null is considered empty, but 0 and false are not
 			row._elem.appendChild(td);
 			row[colName]=td;
 			return td;
 		}
 
 		/*
-		* @return object 	Object with enumerable props named after each column, and non-enumerable ._elem = live <tr> elem
+		* Add a child <tr> element to the table body
+		*
+		* @param object|array data 	The data used to populate the cells of the row
+		*
+		* @return object 	         Object with enumerable props named after each column, 
+		*                            and non-enumerable ._elem = live <tr> elem
 		*/
 		table.addRow=function addRow(data=[]){
 			if(typeof data !='object' || !data)
-				_log.throwType("object or array",data);
+				bu._log.throwType("object or array",data);
 
 			//Create a row...
 			let row={};
@@ -1379,11 +1593,8 @@ module.exports=function export_elemX({cX,_log,evtX}){
 			}
 
 			//If we have any classes to add...
-			if(colClass){
-				var col;
-				for(col in colClass){
-					row[col].classList.add(...colClass[col]);
-				}
+			for(let col in colClass){
+				row[col].classList.add(...colClass[col]);
 			}
 
 			//...and add it to the body and the shorcut on our return element
@@ -1392,12 +1603,14 @@ module.exports=function export_elemX({cX,_log,evtX}){
 			return row;
 		};
 
+
+
 		/*
-		* Remove a child <tr> element
+		* Remove a child <tr> element from the body
 		*
 		* @param number i 	The index of the row in table.body
 		*
-		* @return <tr>|undefined 	The removed row or undefined if none are left
+		* @return <tr>|undefined 	The removed row or undefined nothing was removed
 		*/
 		table.removeRow=function removeRow(i){
 			var row=table.body[i];
@@ -1410,22 +1623,25 @@ module.exports=function export_elemX({cX,_log,evtX}){
 		}
 
 		/*
-		* Remove all rows in the table
+		* Remove all rows in the table body 
+		*
+		* NOTE: doesn't touch possible footer
 		*/
 		table.empty=function empty(i){
-			while(table.body.length){
-				table.removeRow(0);
-			}
+			while(table.removeRow(0)){}
 		}
 
 		/*
-		* Add a cell to every row in the table
+		* Add a cell to every row in the table head, body and footer
+		*
 		* @param string name 	The name of the new column
-		* @return array 		Array of newly created <td> elems (with hidden props, @see createCell())
+		*
+		* @return array 		Array of newly created <td> elems (with hidden props, @see createCell()) in 
+		*						the body (header and footer rows not included)
 		*/
 		table.addCol=function addCol(name){
 			if(columns.includes(name))
-				_log.throwCode('EALREADY',`A column named '${name}' already exists in the table`);
+				bu._log.throwCode('EALREADY',`A column named '${name}' already exists in the table`);
 
 			//Add to list of columns
 			columns.push(name);
@@ -1433,12 +1649,20 @@ module.exports=function export_elemX({cX,_log,evtX}){
 			//Add header
 			addTh(name);
 
-			//Add to each row
-			return table.body.forEach(row=>createCell(row,name));
+			//Add to each row of body and foot
+			var fn=row=>createCell(row,name);
+			var rows=table.body.forEach(fn);
+			if(table.foot)
+				table.foot.forEach(fn);
+
+			return rows;
 		}
 
 		/*
 		* Get a "column" of the table
+		*
+		* NOTE: only includes body, ignores foot
+		*
 		* @param string name 	The name of the new column
 		* @return array 		Array of live <td> elems (with hidden props, @see createCell())
 		*/
@@ -1450,23 +1674,73 @@ module.exports=function export_elemX({cX,_log,evtX}){
 		}
 
 
-		var colClass; 
+		
 		table.addColClass=function addColClass(col,cls){
-			if(!colClass)
-				colClass={};
-
+			//First store it so any future rows use it
 			if(!colClass.hasOwnProperty(col))
 				colClass[col]=[];
 			colClass[col].push(cls);
+
+			//Then add it to every cell in the column in the head,body,foot
 			table.head[col].classList.add(cls);
-			table.body.forEach(row=>row[col].classList.add(cls));
+			table.body.concat(table.foot?table.foot:[]).forEach(row=>row[col].classList.add(cls));
 		}
 
 
 
 
 
+		table.addFooter=function(){
+			if(!table.foot){
+				let tfoot=document.createElement('tfoot');
+				table._elem.appendChild(tfoot);
+				table.foot=[];
+				Object.defineProperty(table.foot,'_elem',{value:tfoot});
+			}else{
+				console.warn("A footer has already been created:",table);
+			}
+		}
 
+
+		/*
+		* Add a child <tr> element to the footer
+		*
+		* @param object|array data 	@see table.addRow()
+		*
+		* @return object 	         Object with enumerable props named after each column, 
+		*                            and non-enumerable ._elem = live <tr> elem
+		*/
+		table.addFootRow=function(data){
+			if(!table.foot)
+				table.addFooter();
+
+			//Then add the row to the regular table, but immediately move it to the <tfoot>
+			var row=table.addRow(data);
+			table.foot._elem.appendChild(row._elem);
+			table.foot.push(table.body.pop());
+			
+			return row;
+		}
+
+		/*
+		* Remove a child <tr> element from the footer
+		*
+		* @param number i 	The index of the row in table.foot
+		*
+		* @return <tr>|undefined 	The removed row or undefined if nothing was removed
+		*/
+		table.removeFootRow=function(i){
+			if(!table.foot)
+				return undefined
+
+			var row=table.foot[i];
+			if(row){
+				table.foot._elem.removeChild(row);
+				return row;
+			}else{
+				return undefined;
+			}
+		}
 
 
 		//Now return the object
@@ -1488,7 +1762,7 @@ module.exports=function export_elemX({cX,_log,evtX}){
 	* @return <HTMLElement> 	A <button> element
 	*/
 	function createCustomEventButton(buttonText,eventName=undefined,details=undefined){
-		cX.checkTypes(['string',['string','undefined']],[buttonText,eventName]);
+		bu.checkTypes(['string',['string','undefined']],[buttonText,eventName]);
 
 		let button=document.createElement('button');
 		button.innerHTML=buttonText;
@@ -1730,7 +2004,7 @@ module.exports=function export_elemX({cX,_log,evtX}){
 	* @return array|object 		And object if flag 'group', else an array. Possibly empty. 
 	*/
 	function multiQuerySelector(targets,selectors,...flags){
-		var types=cX.checkTypes([['node','nodelist'],['string','array'],['array','undefined','string']],arguments);
+		var types=bu.checkTypes([['node','nodelist'],['string','array'],['array','undefined','string']],arguments);
 		try{
 			//Handle diff types of args
 			targets=(types[0]=='node' ? [targets] : Array.from(targets));
@@ -1775,11 +2049,38 @@ module.exports=function export_elemX({cX,_log,evtX}){
 			return holder;
 		}catch(err){
 			if(err.toString().indexOf('is not a valid selector')>-1){
-				_log.makeError('Invalid selector:',selector,arguments).setCode("SyntaxError").exec().throw();
+				bu._log.makeError('Invalid selector:',selector,arguments).setCode("SyntaxError").exec().throw();
 			}
-			_log.warn("BUGBUG. Undocumented error caught. Dev: either prevent or add to func description.");
-			_log.throw(err,arguments);
+			bu._log.warn("BUGBUG. Undocumented error caught. Dev: either prevent or add to func description.");
+			bu._log.throw(err,arguments);
 		}
+	}
+
+
+	/*
+	* Sort a list of nodes based on their depth
+	* @return array
+	*/
+	function sortByDepth(nodes){
+		checkTypes(['nodelist','array'],arguments);
+
+		//We want to return an array organized by depth (so eg. gracefullyRemoveElement() can remove them 
+		//in the right order), so start by grouping them by such....
+		var byDepth={},c=0;
+		for(let node of nodes){
+			c++;
+			let d=countParentNodes(node);
+			byDepth[d]=byDepth[d]||[];
+			byDepth[d].push(node);
+		}
+
+		//...then flatten into an array
+		nodes=[];
+		var keys=Object.keys(byDepth).sort().reverse().forEach(key=>{
+			nodes.push.apply(nodes,byDepth[key])
+		})
+
+		return nodes;
 	}
 
 

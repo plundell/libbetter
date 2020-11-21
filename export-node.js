@@ -14,7 +14,7 @@ const BetterLog=require("./log");
 BetterLog._env='terminal';
 
 const BetterEvents=require("./events");
-Object.defineProperty(BetterEvents.prototype,'_defaultEmitErrorHandler',{value:BetterLog._syslog.error});
+Object.defineProperty(BetterEvents.prototype,'onerror',{value:BetterLog._syslog.error});
 
 const BetterUtil=require("./util/bu-node")({BetterLog,BetterEvents}); //this gets the node-version of utils
 

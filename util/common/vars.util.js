@@ -52,7 +52,9 @@ module.exports=function export_vX({varType,logVar,_log}){
 		,'checkType':checkType
 		,'checkTypes':checkTypes
 		,'checkProps':checkProps
+		,checkTypedArray
 		,isEmpty
+		,isNotEmpty
 		,'sameValue':sameValue
 		,'compare':compare
 		,'getCompareFunc':getCompareFunc
@@ -61,6 +63,7 @@ module.exports=function export_vX({varType,logVar,_log}){
 		,stringToPrimitive
 		,stringToNumber
 		,'forceType':forceType
+		,jsonParse
 		,'tryJsonParse':tryJsonParse
 		,'tryJsonStringify':tryJsonStringify
 		,'stringifySafe':stringifySafe
@@ -93,6 +96,9 @@ module.exports=function export_vX({varType,logVar,_log}){
 		,'nr':'number'
 		,'*':'any'
 		,'mixed':'any'
+		,'falsey':'falsy'
+		,'false':'falsy'
+		,'true':'truthy'
 	}
 	// var primitiveObject={
 	// 	'string':String
@@ -115,10 +121,18 @@ module.exports=function export_vX({varType,logVar,_log}){
 			_log.throw(`BUGBUG: checkType() expected at least 2 args, got ${arguments.length}:`,arguments);
 		
 		var errStr=(typeof falseOrCaller=='string' ? falseOrCaller+'() e' : 'E') +"xpected ";
-		var gotType=varType(got);
-		switch(varType(expectedType)){
+		var typeOfExpType=(varType(expectedType));
+		switch(typeOfExpType){
 			case 'string':
+				if(expectedType.endsWith('*')){
+					if(got==undefined)
+						return 'undefined';
+					else
+						expectedType=expectedType.slice(0,-1)
+				}
+
 				expectedType=lookup[expectedType] || expectedType;
+				let gotType=varType(got);
 				if(gotType == expectedType || expectedType=='any'){
 					// console.log("SAMESAMESAME - returning");
 					return gotType;
@@ -128,6 +142,15 @@ module.exports=function export_vX({varType,logVar,_log}){
 						return gotType;
 					}
 					// console.log('PRIMITIVE but failed',gotType,typeof gotType);
+				}else if(expectedType=='falsy'){
+					if(got)
+						break; //truthy, fail at bottom
+					return gotType;
+				}else if(expectedType=='truthy'){
+					if(!got)
+						break; //falsy, fail at bottom
+					return gotType;
+				
 				}else if(expectedType.substring(0,1)=='<'){
 					if(gotType=='object'){
 						var name=expectedType.substring(1,expectedType.length-1);
@@ -143,15 +166,13 @@ module.exports=function export_vX({varType,logVar,_log}){
 								break;
 						}
 					}
-					// else
-						// console.log(`WRONG OBJECT:${got.constructor.name}!=${name}`);
 				} 
-				//else{ console.log("NOT THE SAME -",expectedType,gotType,gotType == expectedType,got);}
-
-			//2019-12-09: DO NOT allow String object when checking for 'string' since many native functions 
-			//will fail if given String() when expecting string
-				
+				//Ok, we did not get what we wanted, jump to bottom
 				break;
+
+			//DevNote: DO NOT allow String object when checking for 'string' since many native functions 
+			//          will fail if given String() when expecting string
+				
 			case 'array':
 				var goodType=expectedType.find(t=>checkType(t,got,true))
 				if(goodType)
@@ -168,7 +189,7 @@ module.exports=function export_vX({varType,logVar,_log}){
 					//2019-11-28: It seems BetterLog instances fail here
 				}
 			default:
-			_log.throw("BUGBUG: checkType() expected arg#1 to be string/array/object/function, got:",logVar(expectedType));
+				_log.throw("BUGBUG: checkType() expected arg#1 to be string/array/object/function, got: "+logVar(expectedType));
 		}
 		if(falseOrCaller===true)
 			return false;
@@ -185,7 +206,7 @@ module.exports=function export_vX({varType,logVar,_log}){
 
 	function checkTypes(expArr,gotArr, falseOrCaller){
 		if(varType(expArr)!='array')
-			_log.throw("BUGBUG: checkTypes() expected arg#1 to be an array, got:",logVar(expArr));
+			_log.throw("BUGBUG: checkTypes() expected arg#1 to be an array, got: "+logVar(expArr));
 
 		switch(varType(gotArr)){
 			case 'object':
@@ -195,10 +216,10 @@ module.exports=function export_vX({varType,logVar,_log}){
 			case 'array':
 			case 'arguments':
 				//It's important we don't alter the array, in case it's used again
-				gotArr=Array.prototype.slice.call(gotArr,0);
+				gotArr=Array.from(gotArr);
 				break;
 			default:
-				_log.throw("BUGBUG: checkTypes() expected arg#2 to be an array, got:",logVar(gotArr));
+				_log.throw("BUGBUG: checkTypes() expected arg#2 to be an array, got: "+logVar(gotArr));
 		}
 
 		//Make sure we have the same number in each array
@@ -244,7 +265,7 @@ module.exports=function export_vX({varType,logVar,_log}){
 
 	/*
 	* @param object obj 	Any object
-	* @param object types 	Keys are same as obj, values are expected types (string or array or strings)
+	* @param object types 	Keys are same as obj, values are expected types (string or array of strings)
 	* @opt bool|string falseOrCaller
 	*
 	* @throws <ble TypeError> 	If args passed to this func is wrong (incl. if arg#1 isn't an object), @see checkType
@@ -255,23 +276,26 @@ module.exports=function export_vX({varType,logVar,_log}){
 	*/
 	function checkProps(obj,types,falseOrCaller){
 		if(!checkType('object',types,true)) 
-			_log.makeError("BUGBUG: checkProps expects arg#2 to be an object, got:",types).throw("TypeError");
+			_log.makeError("checkProps() expects arg#2 to be an object, got:",types).throw("BUGBUG");
+
+		if(!checkType('object',types,obj)) 
+			_log.makeError(`Expected an object with certain props, but didn't even get an object, got a ${varType(obj)}:`,obj).throw('TypeError');
+
 		
 		try{
-			checkType('object',obj);
-			var key;
+			var key, gotTypes={};
 			for(key in types){
 				try{
-					types[key]=checkType(types[key],obj[key],false); //false==>throw or return type
+					gotTypes[key]=checkType(types[key],obj[key],false); //false==>throw or return type
 				}catch(err){
 					if(falseOrCaller===true){
 						return false;
 					}
 					
 					//If we're here we're going to throw...
-					var msg=` prop '${key}'`,code;
+					var msg=` prop '${key}'.`,code;
 					if(obj.hasOwnProperty(key)){
-						msg='Bad'+msg+': '+logVar(obj[key]);
+						msg='Bad'+msg;
 						code='EINVAL';
 					}else{
 						msg='Missing'+msg;
@@ -280,7 +304,39 @@ module.exports=function export_vX({varType,logVar,_log}){
 					if(falseOrCaller){
 						msg=falseOrCaller+'(): '+msg;
 					}
-					_log.throwCode(code,msg,err);
+					_log.throwCode(code,msg,obj,err);
+				}
+
+			}
+			return gotTypes;
+		}catch(ble){
+			ble.changeWhere(1).throw();
+		}
+	}
+
+	/*
+	* Check that all items in an array are a given type/types
+	* @param array arr
+	* @param string|array[string...] expectedType @see checkType
+	* @opt bool|string falseOrCaller
+	*/
+	function checkTypedArray(arr,expectedType,falseOrCaller){
+		if(!checkType('array',arr,true))
+			_log.makeError("BUGBUG: checkTypedArray expects arg#1 to be an array of values, got:",arr).throw("TypeError");
+		if(!checkType(['string','array'],expectedType,true)) 
+			_log.makeError("BUGBUG: checkTypedArray expects arg#2 to be a string or array of strings, got:",expectedType).throw("TypeError");
+
+		try{
+			var types=[];
+			for(let i in arr){
+				try{
+					types[i]=checkType(expectedType,arr[i],false); //false==>throw or return type
+				}catch(ble){
+					if(falseOrCaller===true)
+						return false;
+					else if(falseOrCaller)
+						ble.prepend(falseOrCaller+'(): ');						
+					ble.append(`at item #${i}`).throw(); //caught again vv
 				}
 
 			}
@@ -289,9 +345,6 @@ module.exports=function export_vX({varType,logVar,_log}){
 			ble.changeWhere(1).throw();
 		}
 	}
-
-
-
 
 	/*
 	* Check if a variable contains information, ie. everything except: undefined, null, empty string,
@@ -345,6 +398,9 @@ module.exports=function export_vX({varType,logVar,_log}){
 		}
 	}
 
+	function isNotEmpty(){
+		return !isEmpty.apply(null,arguments);
+	}
 
 		
 	function sameValue(a,b){
@@ -423,10 +479,9 @@ module.exports=function export_vX({varType,logVar,_log}){
 		else
 			return [undefined,string];
 	}
-	function getCompareFunc(operator){
+	function getCompareFunc(operator='==='){
+		checkType('string',operator);
 		switch(operator){
-			case 'undefined':
-			case undefined:
 			case '===' : return (a,b)=>a===b;
 			case '==' : return (a,b)=>a==b;
 			case '!=' :
@@ -443,7 +498,7 @@ module.exports=function export_vX({varType,logVar,_log}){
 			case 'contains' : return (a,b)=>typeof a=='string' && a.indexOf(b)>-1;
 			case 'regexp' : return (a,b)=>typeof a=='string' && a.search(b)>-1;
 			default:
-				throw new Error("Unknown operator: "+logVar(operator));
+				_log.throwCode('EINVAL',"Unknown operator: "+operator);
 		}
 	}
 
@@ -503,12 +558,15 @@ module.exports=function export_vX({varType,logVar,_log}){
 	* 
 	* @throw <ble TypeError>
 	*
-	* @return primitive
+	* @return primitive|undefined
 	*/
 	function stringToPrimitive(str){ 
 		if(typeof str!='string'){
+			if(str==undefined)
+				return undefined;
+
 			if(!isPrimitive(str))
-				cX.makeTypeError('string or primitive',str).throw();
+				_log.makeTypeError('string or primitive',str).throw();
 			return str;
 		}
 
@@ -581,7 +639,7 @@ module.exports=function export_vX({varType,logVar,_log}){
 						return value=='null' ? null : undefined;
 
 					//If we got any empty value, return undefined etc
-					if(empty(value))
+					if(isEmpty(value))
 						return expectedType=='null' ? null : undefined;
 
 					break;
@@ -601,12 +659,19 @@ module.exports=function export_vX({varType,logVar,_log}){
 					if(!isNaN(num))
 						return num;
 					//If we didn't make a number, throw at bottom...
-
+					break;
 				case 'string':
 					if(gotType=='array'||gotType=='object')
-						return tryJsonStringify(value);
-
-					return String(value);
+						return JSON.stringify(value);
+					else
+						return String(value);
+				case 'promise':
+					return Promise.resolve(value);
+				case 'error':
+					return new Error(String(value));
+				case 'function':
+					_log.throwCode("EINVAL","This method cannot turn anything into functions, use something else.");
+									
 				case 'array':
 					//turn objects with numerical keys into arrays... 
 					if(gotType=='object'){
@@ -617,21 +682,10 @@ module.exports=function export_vX({varType,logVar,_log}){
 					}
 					//don't break so we can try for json vv
 				case 'object':
-				// return JSON.parse(value)
-					let x=tryJsonParse(value,true);
-					if(checkType(expectedType,x,true))
-						return x
-					
-					//Any other scenario is bad
+				// console.log('expected type:',expectedType,'         got type:',gotType)
+					if(gotType=='string')
+						return jsonParse(value,'object');
 					break;
-					
-				case 'promise':
-					return Promise.resolve(value);
-				case 'error':
-					return new Error(String(value));
-				case 'function':
-					break;
-
 				default:
 					_log.throwCode("BUGBUG","BetterUtil.forceType() expected arg #1 to be a return value of BetterUtil.varType(), got:",expectedType);
 			}
@@ -642,65 +696,138 @@ module.exports=function export_vX({varType,logVar,_log}){
 
 
 	/*
+	* This function attempts to parse a JSON string
+	*
+	* @param string|object|array 	The string is parsed, the object/array just returned 
+	*
+	* @throws <ble EEMPTY>    	Got an empty string
+	* @throws <ble EINVAL>    	Got a string that isn't close to JSON
+	* @throws <ble EFORMAT>   	Got a string that is probably badly formated JSON
+	* @throws <ble TypeError>   Arg #1 wasn't a string (or already the expected type)
+	* @throws <ble EMISMATCH>   Successfully parsed x as JSON but it produced a value of a non-expected type
+	*
+	* @return object|array
+	*/ 
+	function jsonParse(x,expectedType){
+		let exp="Expected a JSON string"
+
+		if(typeof x=='string'){
+			let trimmed=x.trim();
+			if(!trimmed)
+				_log.throwCode("EEMPTY",exp+", empty string.");
+
+			try{
+				var parsed=JSON.parse(trimmed);
+				
+				//If a specific type was requested...
+				if(expectedType)
+					try{checkType(expectedType,parsed)
+					}catch(err){
+						err.msg=err.msg.replace(', got:',', but json string parsed into');
+						err.throw('EMISMATCH');
+					}
+
+				return parsed;
+
+			}catch(jsonErr){
+				let recursErr=false,note,err;
+				try{
+					//Try removing comments, and if something changes take that as a sign and run this
+					//function again
+					var stripped=stripFullLineComments(trimmed);
+					if(stripped!=trimmed){
+						if(stripped==''){
+							note="Was the whole string a comment? Because BetterUtil.stripFullLineComments() thought it was.";
+						}else{
+							_log.debug("Removed comments from string and trying again");
+							try{return jsonParse(stripped)}catch(e){recursErr=e;throw e}
+						}
+					}
+					let wrapper=trimmed.substr(0,1)+trimmed.substr(-1); //NOTE substring() and substr() don't work the same!
+					if(wrapper=='{}'||wrapper=='[]'){
+						err=_log.makeError(`${exp}, which this probably is, but poorly formated. ${jsonErr.message}`)
+							.setCode("EFORMAT");
+						
+						//See if we can find where the issue occured...
+						let errStr=String(jsonErr)
+							,pos=Number(errStr.substr(errStr.lastIndexOf(' ')));
+						if(!isNaN(pos)){
+							err.highlightBadCode(x,pos);
+						}else{
+							err.addExtra(logVar(x,300,'noType'));
+						}
+
+					}else{
+						err=_log.makeError(`Not a JSON string. ${jsonErr.message}:`).addExtra(logVar(x,300,'noType'))
+							.setCode("EINVAL");
+					}
+					if(note){
+						err.addHandling(note);
+					}
+
+				}catch(e){
+					if(e==recursErr){
+						throw e;
+					}else{
+						throw _log.makeError(e).setBubble(jsonErr).setCode('BUGBUG').exec();
+					}
+					
+				}
+				err.throw();
+			}
+		}else{
+			if(x==undefined || x==null){
+				_log.throwCode("EEMPTY",exp+", got: "+x);
+			}
+
+			_log.throwType('JSON string',x);		
+		}
+	}
+
+
+	/*
 	* This function attempts to parse a JSON string without throwing errors
 	*
 	* @param any x 
-	* @param bool onlyReturnObject	Default false. If true, this function will only return @x if it was successfully parsed into
-	*								an object, or if it was an object to begin with
+	* @opt bool|string expectedType  If truthy this will return undefined if jsonParse fails. If a specific vartype it
+	*                                will check the resulting value against that else return undefined. If omitted 
+	*                                $x will be returned if jsonParse fails
 	*
-	* @return object|undefined
-	*/
+	* @return any|object|undefined   Returns undefined if parse failed or gave the wrong type UNLESS we don't care about
+	*                                the type in which case $x is returned
+	* @no-throw
+	*/ 
+	function tryJsonParse(x, expectedType=undefined){
+		try{
+			//If we already have what we want...
+			if(expectedType && checkType(expectedType,x,true))
+				return x;
+			//2020-10-01: WEIRD: First ^ didn't work but vv did... now they both work?!
+			// if(expectedType){
+			// 	let alreadyRightType=checkType(expectedType,x,true);
+			// 	if(alreadyRightType)
+			// 		return x
+			// } 
 
-							 
-	function tryJsonParse(x, onlyReturnObject=false){
-		if(x && typeof x=='object')
-			return x;
+			//If this doesn't throw than we got exactly what we wanted
+			return jsonParse(x,expectedType);
 
-		if(typeof x=='string'){
-			var err;
-			try{
-				return JSON.parse(x.trim());
-			} catch(e){err=e}
+		}catch(err){
+			//If we didn't care at all, just wanted to test, don't log anything just return the original value
+			if(!expectedType)
+				return x;
 
-
-
-			//Try removing comments, and if something changes take that as a sign and run this
-			//function again
-			var stripped=stripFullLineComments(x);
-			if(stripped!=x){
-				if(stripped==''){
-					_log.note("Was the whole string a comment? Because BetterUtil.stripFullLineComments() thought it was:",x,String(err));
-				}else{
-					_log.debug("Removed comments from string and trying again");
-					return tryJsonParse(stripped);
-				}
+			//If we did care but didn't get it, log something then return undefined
+			switch(err.code){
+				case 'EFORMAT': //bad json string, probably want the oppertunity to correct that
+				case 'EMISMATCH': //parse succeeded but gave us something unexpected
+					err.setLvl('warn').exec(); break;
+				
+				case 'TypeError': //Not a string at all
+				case 'EINVAL': //not a json string at all
+					err.setLvl('debug').exec();
 			}
-
-			//At this point we know we're going to fail, the question is just what we log and what we return
-
-
-
-			let xx=x.trim(), wrapper=xx.substr(0,1)+xx.substr(-1); //NOTE substring() and substr() don't work the same!
-			if(wrapper=='{}'||wrapper=='[]'){
-				var warn=_log.makeEntry('warn',"This is probably a poorly formated JSON obj/arr:");
-				let e=String(err),p=e.lastIndexOf(' '),pos=Number(e.substr(p));
-				if(!isNaN(pos)){
-					warn.highlightBadCode(x,pos);
-				}else{
-					warn.addExtra(x,err);
-				}
-			}
-		}
-		
-		if(onlyReturnObject && (!x || typeof x !='object')){
-			if(warn)
-				warn.exec();
-			else
-				_log.debug('Not a JSON string:',x,String(err)); //don't debug if we've already warned
-			
 			return undefined;
-		} else {
-			return x
 		}
 	}
 
@@ -850,7 +977,8 @@ module.exports=function export_vX({varType,logVar,_log}){
 
 			//If we've gone too deep, throw to prevent long loop that exceeds stack...
 			if(depth>30){
-				console.error(x)
+				if(x)
+					console.error(x)
 				_log.throw(new RangeError('Maximum call stack size may be exceeded due to infinite loop, aborting!'));
 			}
 
@@ -969,7 +1097,6 @@ module.exports=function export_vX({varType,logVar,_log}){
 				case 'nodelist':
 				case 'promise':
 				case 'error': //TODO: other handling??
-				case 'ble':   //TODO: other handling??
 				default:	
 					let c=copy(x);
 					refs.set(x,c);

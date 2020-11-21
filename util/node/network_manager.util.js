@@ -530,11 +530,10 @@ module.exports=function exportnmX(dep){
 	* @return Promise(object)
 	*/
 	function listAllWifiNetworks(){
-		return cX.awaitAllPromises([
+		return cX.groupPromises([
 			nm_listWifiNetworks()
 			,listSavedConnections('wifi')
-		],['logRejected'])
-		.then(([available, saved])=>{
+		],log).promise.then(({resolved:[available, saved]})=>{
 			var combined={visible:[],outofrange:[],connected:[]};
 
 			//First we loop through the available networks...

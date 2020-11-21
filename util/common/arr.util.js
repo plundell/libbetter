@@ -23,7 +23,14 @@ module.exports=function export_aX({_log,vX}){
 	    ,'anyArrayOverlap':anyArrayOverlap
 	    ,'pushToNestedArray':pushToNestedArray
 	    ,'filterSplit':filterSplit
+	    ,findExtract
+	    ,findExtractAll
 	    ,makeArray
+	    ,sequence
+	    ,splitIf
+	    ,move
+		,manualSort
+		,spliceBetween
 	};
 
 
@@ -67,7 +74,7 @@ module.exports=function export_aX({_log,vX}){
 	* @param array|function x 	List of items to extract, or a callback which get's passed each item and if it
 	*							returns truthy then the item is extracted
 	*
-	* @return array 		An array of the items that existed (ie. could be an empty array)
+	* @return array 		An array of the items that where extracted (ie. could be an empty array if none existed in the first place)
 	*/
 	function extractItems(arr,x){
 		if(vX.checkTypes(['array',['array','function']],Object.values(arguments))[1]=='function'){
@@ -80,8 +87,8 @@ module.exports=function export_aX({_log,vX}){
 			return extracted;
 		}else{
 			return x
-				.map(item=>extractCommon(arr,item))
-				.filter(item=>typeof item!='undefined');
+				.map(item=>extractCommon(arr,item)) //returns the same item, or undefined...
+				.filter(item=>typeof item!='undefined'); //...then we get rid of undefined
 		}
 	}
 
@@ -166,8 +173,8 @@ module.exports=function export_aX({_log,vX}){
 		if(vX.checkType(['array','object'],arr)=='object'){
 			if(typeof arr.length!='number')
 				_log.throwType("arg #1 to getFirstOfType() to be an array-like object",arr);
-			else
-				arr=Array.from(arr);
+			else if(extract)
+				_log.throwCode("EMISMATCH","Cannot extract if you don't pass an array, got:",arr);
 		}
 
 		var i=0,l=arr.length;
@@ -214,9 +221,12 @@ module.exports=function export_aX({_log,vX}){
 			else
 				onlyA.push(x);
 		}
-		for(x of B){
-			if(A.indexOf(x)==-1)
-				onlyB.push(x);
+		//If both arrays are the same length, and $both is now also that length then we don't need the next loop
+		if(A.length!=B.length || A.length!=both.length){
+			for(x of B){
+				if(A.indexOf(x)==-1)
+					onlyB.push(x);
+			}
 		}
 		return [onlyA,onlyB,both];
 	}
@@ -273,7 +283,7 @@ module.exports=function export_aX({_log,vX}){
 	/*
 	* Filter an array into two arrays
 	*
-	* @param array arr
+	* @param array arr          Not altered
 	* @param function func
 	* @param bool retainIndex 	If truthy, the items will have the same indexes in their new arrays
 	*							as they did in the original. This will create non-sequential arrays
@@ -308,6 +318,55 @@ module.exports=function export_aX({_log,vX}){
 			cX._log.makeError(err).throw();
 		}
 	}
+
+
+	/*
+	* Like Array.find() but extracts the matching item
+	*
+	* @param array arr          Will be altered!
+	* @param function func
+	* @flag 'reverse' 			If passed $arr will be traversed from reverse
+	*
+	* @return any|undefined 	The first matching item, or undefined
+	*/
+	function findExtract(arr,func,reverse){
+		vX.checkTypes(['array','function'],[arr,func]);
+		if(reverse=='reverse'){
+			for(let i=arr.length-1;i>=0;i--){
+				if(func(arr[i],i,arr))
+					return arr.splice(i,1)[0];
+			}
+		}else{
+			for(let i in arr){
+				if(func(arr[i],i,arr))
+					return arr.splice(i,1)[0];
+			}
+		}
+		return;
+	}
+
+	/*
+	* Like Array.findAll() but extracts the matching item
+	*
+	* @param array arr          Will be altered!
+	* @param function func
+	* @flag 'retainIndex' 		Indexes will be retained on retruned array (not sequential array)
+	*
+	* @return array 			An array of matching items, possibly empty
+	*/
+	function findExtractAll(arr,func,retainIndex){
+		vX.checkTypes(['array','function'],[arr,func]);
+		var extracted=[]
+		for(let i=arr.length-1;i>=0;i--){
+			if(func(arr[i],i,arr))
+				extracted[i]=arr.splice(i,1)[0];
+		}
+		if(retainIndex=='retainIndex')
+			return extracted;
+		else
+			return Object.values(extracted);
+	}
+
 
 	/*
 	* Wrap any item in an array, or turn into an array, or keep as an array (ie. don't double wrap). If multiple
@@ -347,7 +406,6 @@ module.exports=function export_aX({_log,vX}){
 				case 'boolean':
 				case 'function':
 				case 'null':
-				case 'ble':
 				case 'error':
 				case 'promise':
 				case 'node':
@@ -359,6 +417,101 @@ module.exports=function export_aX({_log,vX}){
 		})
 		return array;
 	}
+
+
+	/*
+	* Get a sequence of numbers
+	*
+	* @param number start
+	* @param number end
+	* @opt number increment 	Default 1
+	*
+	* @return array[number...]
+	*/
+	function sequence(start,end,increment=1){
+		vX.checkTypes(['number','number','number'],[start,end,increment]);
+		var output=[],i=start;
+		for(i;i<=end;i+=increment){
+			output.push(i);
+		}
+		return output;
+	}
+
+	/*
+	* Split a string on a delimiter like normal, but if only a single item is produced return the original string
+	*
+	* @param string str
+	* @param string delim
+	* @opt boolean keepEmpty  Default falsey => all empty items produced from the split will be discarded
+	*
+	* @return array|string
+	*/
+	function splitIf(str,delim,keepEmpty){
+		vX.checkTypes(['string','string'],[str,delim]);
+		var arr=str.split(delim);
+		if(!keepEmpty)
+			arr=arr.filter(s=>s);
+		if(arr.length>1)
+			return arr;
+		else
+			return str;
+	}
+
+
+	/*
+	* Move an item within an array
+	*
+	* @param array arr      Gets altered
+	* @param number from
+	* @param number to
+	*
+	* @return array          The passed in $arr
+	*/
+	function move(arr,from,to){
+		arr.splice(to,0,arr.splice(from,1)[0]);
+		return arr;
+	}
+
+	/*
+	* Sort a $target array based on the $order in another array (if $target includes those items)
+	*
+	* @param array target   Gets altered
+	* @param array order
+	*
+	* @return array         The passed in $target
+	*/
+	function manualSort(target,order){
+		var nextIndex=0;
+		for(let item of order){ 
+			let i=target.indexOf(item);
+			if(i>-1){ //if target has the item...
+				if(i!=nextIndex){//...and it's not already in the right spot...
+					move(target,i,nextIndex)//...move it there
+				}
+				nextIndex++;
+			}
+		}
+		return target;
+	}
+
+
+	/*
+	* Splice an item between each item of an array
+	*
+	* @param array arr  This array will be altered
+	* @param any item
+	*
+	* @return $arr    NOTe: we won't throw if this isn't an array, so it could return anything
+	*/
+	function spliceBetween(arr,item){
+		if(Array.isArray(arr) && arr.length>1){
+			for(let i=arr.length-1;i>0;i--){
+				arr.splice(i,0,item);
+			}
+		}
+		return arr; 
+	}
+
 
 	return _exports;
 }

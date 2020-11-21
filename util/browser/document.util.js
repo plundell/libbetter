@@ -9,7 +9,7 @@
 *
 * This module is required by bu-browser
 */
-module.exports=function export_docX({cX,_log}){
+module.exports=function export_docX(bu){
 
 	//Methods to export
 	var _exports={
@@ -25,7 +25,7 @@ module.exports=function export_docX({cX,_log}){
 	* @return mixed 			Whatever value was set on the hash, parsed to include object, array and undefined
 	*/
 	function getHashKey(key){
-		return cX.queryStrToObj(window.location.hash)[key];
+		return bu.queryStrToObj(window.location.hash)[key];
 	}
 
 	/*
@@ -38,21 +38,29 @@ module.exports=function export_docX({cX,_log}){
 	*/
 	function setHashKey(key,value){
 		//Parse the current hash 
-		var hashObj=cX.queryStrToObj(window.location.hash), oldValue=hashObj[key];
+		var hashArr=bu.queryStrToKeyValuePairs(window.location.hash);
 
-		//Change the requested key
-		if(value==undefined){
-			delete hashObj[key];
+		//Change the requested key without re-ordering the keys
+		var i=hashArr.findIndex(pair=>pair[0]==key),oldValue;
+		if(i>-1){
+			oldValue=hashArr[i][1];
+			if(value==undefined){
+				hashArr.splice(i,1); //remove existing
+			}else{
+				hashArr[i][1]=value; //change existing
+			}
 		}else{
-			hashObj[key]=value;
+			if(value!=undefined){
+				hashArr.push([key,value]); //add new
+			}
 		}
 
 		//Set the hash back...
-		var hashStr=cX.objToQueryStr(hashObj);
+		var hashStr=bu.keyValuePairsToQueryStr(hashArr);
 		hashStr=hashStr?"#"+hashStr:hashStr; //not needed for setting, but needed for comparison here vv
 		if(window.location.hash!=hashStr){
 			// ...if it's changed
-			_log.trace(`Updating uri hash: ${window.location.hash} => ${hashStr}`)
+			bu._log.trace(`Updating uri hash: ${window.location.hash} => ${hashStr}`)
 			window.location.hash=hashStr;
 		}
 

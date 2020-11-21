@@ -9,7 +9,7 @@
 *
 * This module is required by bu-browser
 */
-module.exports=function export_styleX({cX,_log,elemX}){
+module.exports=function export_styleX(bu){
 
 	
 
@@ -17,7 +17,7 @@ module.exports=function export_styleX({cX,_log,elemX}){
 	var _exports={
 		'increaseBrightness':increaseBrightness
 		,'scrollBarWidth':scrollBarWidth
-		,'colorNameToHex':colorNameToHex
+		,'colorToHex':colorToHex
 		,'createCSSRule':createCSSRule
 		,appendCSSRule
 		,findCSSRule
@@ -67,12 +67,23 @@ module.exports=function export_styleX({cX,_log,elemX}){
 	}
 
 
-	function colorNameToHex(name){
-		name=name.toUpperCase();
-		if(colors.hasOwnProperty(name))
-			return colors[name];
+	/*
+	* Turn color name or hex into color hex, preceeded by '#'
+	*
+	* @param string c
+	*
+	* @return string 	#rrggbb  in lower case. Defaults to the color for gray
+	*/
+	function colorToHex(c){
+		let m=c.match(/#?([A-Fa-f0-9]{6})/)
+		if(m)
+			return '#'+m[1].toLowerCase();
+
+		c=c.toUpperCase();
+		if(colors.hasOwnProperty(c))
+			return colors[c].toLowerCase();
 		else
-			return colors['GRAY'];
+			return colors['GRAY'].toLowerCase();
 	}
 
 	var colors={
@@ -260,11 +271,11 @@ module.exports=function export_styleX({cX,_log,elemX}){
 			if(replace){
 				let rule=findCSSRule(selector,styleSheets);
 				rule.cssText=style;
-				_log.debug("Replaced existing CSS rule",rule);
+				bu._log.debug("Replaced existing CSS rule",rule);
 				return rule;
 			}
 		}catch(err){
-			_log.warn("Failed to replace existing rule, will try to append next...",err);
+			bu._log.warn("Failed to replace existing rule, will try to append next...",err);
 		}
 
 		//If none was found, try creating one as the last item of the last stylesheet (so it 
@@ -272,12 +283,12 @@ module.exports=function export_styleX({cX,_log,elemX}){
 		try{
 			let sheet=styleSheets.pop();
 			if(!sheet){
-				_log.note("No style sheet found at all, is that correct?");
+				bu._log.note("No style sheet found at all, is that correct?");
 			}else{
 				return appendCSSRule(sheet,selector,style);
 			}
 		}catch(err){
-			_log.warn("Failed to add rule to existing stylesheet, will try creating own stylesheet next...",err);	
+			bu._log.warn("Failed to add rule to existing stylesheet, will try creating own stylesheet next...",err);	
 		}
 
 			
@@ -289,7 +300,7 @@ module.exports=function export_styleX({cX,_log,elemX}){
 			document.head.appendChild(styleSheet);
 			return appendCSSRule(styleSheet,selector,style);
 		}catch(err){
-			_log.throw("Failed to create a CSS rule in an existing or new styleSheet.",err);
+			bu._log.throw("Failed to create a CSS rule in an existing or new styleSheet.",err);
 		}
 	}
 
@@ -307,20 +318,20 @@ module.exports=function export_styleX({cX,_log,elemX}){
 	*/
 	function appendCSSRule(styleSheet, selector, style){
 		//If a live style elem is passed, just call this method again with the style sheet
-		if(cX.varType(styleSheet)=='node'){
+		if(bu.varType(styleSheet)=='node'){
 			if(styleSheet.sheet)
 				return appendCSSRule(styleSheet.sheet,selector,style);
 			else
-				_log.makeTypeError("a <style> elem",styleSheet).throw();
+				bu._log.makeTypeError("a <style> elem",styleSheet).throw();
 		}
 
-		cX.checkTypes(['<CSSStyleSheet>','string','string'],arguments);
+		bu.checkTypes(['<CSSStyleSheet>','string','string'],arguments);
 
 		var rule;
 		if(typeof styleSheet.insertRule=='function'){ //modern version
 			var pos=styleSheet.insertRule(`${selector}{${style}}`, styleSheet.cssRules.length); //default to first, so we specify last
 			if(pos!=styleSheet.cssRules.length-1)
-				_log.warn(`A CSS rule was inserted at index ${pos}, which is not the end`,styleSheet.cssRules);
+				bu._log.warn(`A CSS rule was inserted at index ${pos}, which is not the end`,styleSheet.cssRules);
 			rule=styleSheet.cssRules[pos];
 		}else if(typeof styleSheet.addRule=='function'){ //legacy from Microsoft
 			styleSheet.addRule(selector,style); //defaults to last position
@@ -329,7 +340,7 @@ module.exports=function export_styleX({cX,_log,elemX}){
 		if(rule)
 			return rule;
 		else
-			_log.makeError('No rule was created. Dont know why? Called with:',arguments).throw();
+			bu._log.makeError('No rule was created. Dont know why? Called with:',arguments).throw();
 	}
 
 
@@ -376,9 +387,9 @@ module.exports=function export_styleX({cX,_log,elemX}){
 			return [];
 
 		//Get the origin of this script
-		let origin=elemX.getOrigin(document.currentScript);
+		let origin=bu.getOrigin(document.currentScript);
 
-		return Array.from(document.styleSheets).filter(ss=>origin==elemX.getOrigin(ss))
+		return Array.from(document.styleSheets).filter(ss=>origin==bu.getOrigin(ss))
 	}
 
 
