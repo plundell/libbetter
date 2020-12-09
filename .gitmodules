@@ -1,6 +1,8 @@
 [submodule "log"]
 	path = log
-	url = https://github.com/plundell/BetterLog
+	url = git@github.com:plundell/BetterLog.git
+	branch = working
 [submodule "events"]
 	path = events
-	url = https://github.com/plundell/BetterEvents
+	url = git@github.com:plundell/BetterEvents.git
+	branch = working
