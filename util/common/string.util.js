@@ -24,6 +24,7 @@ module.exports=function export_stX({_log,vX}){
 		,replaceAll
 		,escapeRegExp
 		,regexpAll
+		,regexpCapture
 		,toCamelCase
 		,'dashToCamel':toCamelCase
 		,limitString
@@ -289,6 +290,23 @@ module.exports=function export_stX({_log,vX}){
 		return matches;
 	}
 
+
+	/*
+	* Run a regexp on a string and return all captured substrings concatenated
+	* @param <RegExp> regexp
+	* @param string str
+	*
+	* @return string 		Empty if nothing was captures
+	*/
+	function regexpCapture(regexp,str){
+		vX.checkTypes(['<RegExp>','string'],[regexp,str]);
+		var match=str.match(regexp);
+		if(match){
+			return match.slice(1).join("")
+		}else{
+			return '';
+		}
+	}
 
 
 	/*

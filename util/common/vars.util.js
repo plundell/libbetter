@@ -670,7 +670,7 @@ module.exports=function export_vX({varType,logVar,_log}){
 				case 'error':
 					return new Error(String(value));
 				case 'function':
-					_log.throwCode("EINVAL","This method cannot turn anything into functions, use something else.");
+					_log.throwCode("EINVAL","Cannon force to type 'function'.");
 									
 				case 'array':
 					//turn objects with numerical keys into arrays... 
@@ -691,7 +691,7 @@ module.exports=function export_vX({varType,logVar,_log}){
 			}
 		}
 		//If we're still running, throw a TypeError
-		_log.throwType(expectedType,value);
+		_log.makeTypeError(expectedType,value).changeWhere(1).throw();
 	}
 
 

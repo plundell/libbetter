@@ -68,6 +68,8 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 		,'spawnReadable':spawnReadable
 		,'spawnLineEmitter':spawnLineEmitter
 		,'argsToString':argsToString
+		,getId
+		,getGroupMap
 		,'dropPrivs':dropPrivs
 		,'ps':ps
 		,onAnyExitSignal
@@ -191,7 +193,7 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 			  // but we're using the one created in execPrepare())
 		}
 		
-		return _execFileCallback(obj);
+		return _execFileCallback(obj); //can throw
 	};
 
 
@@ -589,10 +591,6 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 
 
 
-
-
-
-
 	
 
 
@@ -667,65 +665,170 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 	// 	}
 	// }
 
-	function dropPrivs(uid=1000,gid=1000){
-		try{
-			var groups=(cX.checkTypes([['string','number'],['string','number','array']],[uid,gid])[1]=='array'?gid:[gid])
-			gid=groups[0];
 
-		//TODO: Allow named users
-			//In case we got numerical strings
-			uid=cX.forceType('number',uid);
-			gid=cX.forceType('number',gid);
-			groups=groups.map(nr=>cX.forceType('number',nr));
-			
-			var _uid,_groups,sameUid, sameGroups;
-			var checkSame=()=>{
-				_uid=process.getuid();
-				_groups=process.getgroups();
-				sameUid=(uid==_uid);
-				sameGroups=(groups.length==_groups.length && groups.every(g=>_groups.includes(g)));
-				return sameUid && sameGroups
+
+
+
+
+
+	/*
+	* Get info about any user on the system
+	*
+	* @param string|number user
+	*
+	* @throws TypeError
+	* @throws ENOTFOUND
+	*
+	* @return object {name,uid,group,gid,gids,groups,toString}
+	*/
+	function getId(user){
+		cX.checkType(['string','number'],user)
+		try{
+			var stdout=execFileSync('id',[user]).stdout;
+			var arr=stdout.split(' ');
+			var id={
+				name:String(cX.regexpCapture(/\(([^)]+)/,arr[0]))
+				,uid:Number(cX.regexpCapture(/=(\d+)/,arr[0]))
+				,group:String(cX.regexpCapture(/\(([^)]+)/,arr[1]))
+				,gid:Number(cX.regexpCapture(/=(\d+)/,arr[1]))
+				,gids:[]
+				,groups:[]
+				,toString:()=>stdout
 			}
+			arr[2].split(',').forEach(group=>{group=group.substring(-1).split('('); id.groups.push(String(group[1])); id.gids.push(Number(group[0])); });
+			return id;
+		}catch(err){
+			if(err.message.includes('no such user'))
+				err.setCode('ENOTFOUND');
+			throw err;
+		}
+
+
+	}
+
+
+
+	/*
+	* Get all groups on the system, or a subset of them
+	*
+	* @param string|number|array filter
+	*
+	* @return <Map>  Keys are numeric gids, values are string names
+	*/
+	function getGroupMap(filter){
+		//First get a map of all groups on the system
+		var groups=new Map();
+		for(let line of execFileSync('cat',['/etc/group']).stdout.split('\n')){
+			var parts=line.split(':');
+			groups.set(Number(parts[2]),String(parts[0]));
+		}
+
+		//Then optionally only keep those in the filter
+		if(arguments.length){
+			var arr=(cX.checkType(['string','number','array'],filter)=='array' ? filter : [filter]);
+			var existing=groups
+				,groups=new Map()
+				,numbers=Array.from(existing.keys())
+				,names=Array.from(existing.values())
+				,excluding=[]
+			;
+			arr.forEach(group=>{
+				//Make sure we don't have string numbers
+				group=cX.stringToNumber(group,'return undef on fail')||group;
+			
+				let type=cX.checkType(['string','number'],group,true);
+				if(type){
+					let list=(type=='string' ? names : numbers), i=list.indexOf(group);
+					if(i>-1){
+						groups.set(numbers[i],names[i]);
+						return 
+					} 
+				}
+
+				//If we're still running then the group is excluded
+				excluding.push(group);
+
+			});
+
+			if(excluding.length)
+				log.warn("Excluding invalid groups: ",excluding);
+		}
+
+		//Add a couple of helper functions
+		groups.gids=function(){return Array.from(this.keys());}
+		groups.names=function(){return Array.from(this.values());}
+
+		//Now return the map which either contains all groups or only those in $filter (ie. possibly none) 
+		return groups;
+	}
+
+
+
+	function dropPrivs(user=1000,gids=null){
+		//First make sure we're root, because only root can change user
+		if(process.geteuid()!=0){
+			log.throwCode('EPERM',`Only root can change user, you're effectivly running as euid:${process.geteuid()}`);
+		}
+
+		var uid, _uid,_gids,sameUid, sameGroups;
+		var checkSame=()=>{
+			_uid=process.getuid();
+			_gids=process.getgroups(); //list of gids
+			sameUid=(user.uid==_uid);
+			sameGroups=(gids.length==_gids.length && gids.every(gid=>_gids.includes(gid)));
+			return sameUid && sameGroups
+		}
+
+		try{
+
+			//Validate the user
+			user=getId(user);
+			uid=user.uid
+
+			//One or more groups are allowed, make sure we have a list of numbers
+			if(gids==null){
+				//Since we're getting the list from the system we don't have to verify
+				gids=user.gids;
+			}else{
+				gids=getGroupMap(gids).gids();
+				if(!gids.length){
+					log.warn(`Got no valid groups, using users primary group: ${user.gid}(${user.group})`);	
+					gids.push(user.gid);
+				}
+			}
+			//now $gids is an array of numbers, at least 1 long
 			
 			if(checkSame()){
-				log.info(`Already running with uid:${uid}, groups:${groups}`)
+				log.info(`Already running with user:${uid}, groups:${gids}`)
 				return false;
-			}else{
-				log.debug(`Trying to drop privs from uid:${_uid}, groups:${_groups}`)
-			}
-			
-
-			if(_uid!=0){
-				if(groups.includes(0)) //2020-06-03: When is this a thing?
-					log.warn("One of your supplementary groups is still root!");
-
-				log.throwCode('EPERM',`Only root can change user, you're running as uid:${_uid}`);
 			}
 
+			log.debug(`Trying to change user:${uid}=>${_uid}  groups:${_gids}=>${gids}`)	
 
-			//For some reason, if we just try to setgid, node just adds the gid and leaves the old one intact, 
-			//so we need to set all groups followed by gid
-			process.setgroups(groups);
-			process.setgid(gid);
+			//Set both gid and groupd, else some of the old will remain... order doesn't matter though...
+			process.setgid(gids[0]); 
+			process.setgroups(gids);
 
+			//Finally set the user AFTER ^
 			process.setuid(uid);
 			
 
 			//Now just make sure we have it right
 			if(checkSame()){
-				log.note(`Dropped privs. Now running as uid:${uid}, groups:${groups}`)
+				log.note(`Dropped privs. Now running as uid:${uid}, groups:${gids}`)
 				return true
 			}else{
-				log.throwCode("BUGBUG","No errors thrown when changing, but change didn't occur");
+				log.throwCode("BUGBUG","No errors thrown when changing user/groups, but change didn't occur"); //caught vv
 			}
 
 		}catch(err){
+			checkSame();
 			var logstr='';
 			if(!sameUid)
 				logstr+=`uid:${_uid}=>${uid}`;
 			
 			if(!sameGroups)
-				logstr+=`${sameUid?'':', '} groups:${_groups}=>${groups}`;
+				logstr+=`${sameUid?'':', '} groups:${_gids}=>${gids}`;
 			
 
 			log.throw(`Failed to drop privs: ${logstr}`,err);

@@ -249,7 +249,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 		}catch(e){
 			err=e;
 		}
-		return _existsCallback(err,type,path,thrw);
+		return _existsCallback(err,type,path,throwOn);
 	}
 
 	/*
@@ -365,7 +365,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 			return _p.normalize(path);
 		
 		}catch(err){
-			if(thrw){
+			if(throwOn){
 				//Make sure the 'where' is the individual func that uses this common callback...
 				log.makeError(err).changeWhere(1).throw();
 			}else{
