@@ -16,8 +16,8 @@
     "url": "git+https://github.com/plundell/libbetter.git"
   },
   "dependencies": {
-    "evenbetterlog": "^1.0.2",
-    "evenbetterevents": "^1.0.1"
+    "evenbetterevents": "^1.0.1",
+    "evenbetterlog": "^1.0.2"
   },
   "devDependencies": {
     "webpack": "^4.42.1",

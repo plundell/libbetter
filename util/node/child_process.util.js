@@ -803,7 +803,7 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 				return false;
 			}
 
-			log.debug(`Trying to change user:${uid}=>${_uid}  groups:${_gids}=>${gids}`)	
+			log.debug(`Trying to change user:${_uid}=>${uid}  groups:${_gids}=>${gids}`)	
 
 			//Set both gid and groupd, else some of the old will remain... order doesn't matter though...
 			process.setgid(gids[0]); 
