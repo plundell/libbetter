@@ -30,6 +30,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	*/
 	const _p=dep.p||dep.path||dep._p||require('path');
 	
+	const inodeTypes=['file','dir','block','raw','fifo','socket','symlink'];
 	/*
 	* @const object cpX
 	*/
@@ -231,10 +232,11 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	*
 	* @param string path 		@see _existsPre()
 	* @opt string|array type 	@see _existsPre()
-	* @opt string throwOn 	    @see _existsCallback()
+	* @opt string throwOn 	    @see _existsCallback(). Controlls if <ble EEXISTS>|<ble ENOTFOUND> can be thrown
 	*
-	* @throws <BLE TypeError> 							@see _existsPre() (throws even if $thrw is false)
-	* @throws <ble EACCESS>|<ble ETYPE>|<ble BUGBUG> 	@see _existsCallback()
+	* @throws <BLE TypeError> 	Any arg is wrong type
+	* @throws <BLE EINVAL> 		$type or $throwOn are bad values
+	* @throws <ble EACCESS>|<ble ETYPE>|<ble BUGBUG>|<ble EEXISTS>|<ble ENOTFOUND>	@see _existsCallback()
 	*
 	* @return undefined|str 	A normalized path if it exists, else undefined
 	* @access public/exported
@@ -242,33 +244,34 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	* @not_logged
 	*/
 	function existsSync(path,type=undefined,throwOn=undefined){
-		path=_existsPre(path,type);
-		var err;
+		var err, args=_existsPre(arguments); //throws TypeError and EINVAL
 		try{
 			fs.accessSync(path); //throws error if not exists 
 		}catch(e){
 			err=e;
 		}
-		return _existsCallback(err,type,path,throwOn);
+		return _existsCallback(err,...args);
 	}
 
 	/*
 	* @param string path 		@see _existsPre()
 	* @opt string|array type 	@see _existsPre()
-	* @opt string rejOn 	    @see _existsCallback()
+	* @opt string rejOn 	    @see _existsCallback(). Controlls if <ble EEXISTS>|<ble ENOTFOUND> can be rejected
 	*
 	*
 	* @return Promise
-	* @resolve undefined|str 							A normalized path if it exists, else undefined
-	* @reject <BLE TypeError> 							@see _existsPre() (throws even if $rej is false)
-	* @reject <ble EACCESS>|<ble ETYPE>|<ble BUGBUG> 	@see _existsCallback()
+	* @resolve undefined|str 	A normalized path if it exists, else undefined
+	*
+	* @reject <BLE TypeError> 	Any arg is wrong type
+	* @reject <BLE EINVAL> 		$type or $rejOn are bad values
+	* @reject <ble EACCESS>|<ble ETYPE>|<ble BUGBUG>|<ble EEXISTS>|<ble ENOTFOUND>	@see _existsCallback()
 	*/
-	function existsPromise(path,type=undefined,rejOn=undefined){
+	function existsPromise(){
+		try{var args=_existsPre(arguments)}catch(e){return log.makeError(e).reject()}; //throws TypeError and EINVAL
 		return new Promise((resolve,reject)=>{
-			path=_existsPre(path,type);
-			fs.access(path,function existsPromise_accessCallback(err){
+			fs.access(args[0],function existsPromise_accessCallback(err){
 				try{
-					return resolve(_existsCallback(err,type,path,rejOn)); 
+					return resolve(_existsCallback(err,...args)); 
 				}catch(err){
 					return reject(err);
 				}
@@ -286,17 +289,38 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	*
 	* @return string 	The cleaned up path
 	*/
-	function _existsPre(path,type){
-		path=resolvePath(path); //throws error on bad value
-		cX.checkType(['string','array','undefined'],type);
-		return path
+	function _existsPre(args){
+		var arr=Array.from(args);
+		var types=cX.checkTypes(['string',['string','array','undefined'],['string','undefined']],arr);
+
+		arr[0]=resolvePath(arr[0]); //throws error on bad value
+
+		switch(types[1]){
+			case 'string':
+				arr[1]=[arr[1]];
+				//fall through
+			case 'array':
+				try{arr[1]=arr[1].map(t=>t.toLowerCase());}catch(err){log.throwType("arg#2 to be a list of strings, all weren't:",arr[1])}
+				if(!arr[1].every(t=>inodeTypes.includes(t)))
+					log.throwCode('EINVAL', `Arg#2, not all are valid inode types: ${arr[1].join(',')}` )
+			default:
+				arr[1]=undefined
+		}
+
+		if(types[2]=='string'){
+			arr[2]=arr[2].toUpperCase()
+			if(arr[2]!='EEXISTS' && arr[2]!='ENOTFOUND')
+				log.throwCode('EINVAL',"Arg #3 should be EEXISTS or ENOTFOUND, got: ",arr[2]);
+		}
+
+		return arr
 	}
 
 	/*
 	* @param error err	
 	* @param string path
 	* @param string|array type		Expected type of path. @see inodeType(). This can cause ETYPE even if $thrw==false
-	* @param bool throwOn			'EEXISTS' or 'ENOTFOUND'. Causes this error to be thrown if such is the case
+	* @param string throwOn			In what situation should we throw? If the thing exists or if it doesn not
 	*
 	* @throws <ble EEXISTS>	     	The inode exists. Only if $throwOn==EEXIST
 	* @throws <ble ENOTFOUND>		If WE KNOW the path doesn't exist (and $thrw==true) (could be because ENOTDIR along path). Only if $throwOn==ENOTFOUND
@@ -306,13 +330,12 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	*
 	* @return undefined|str 		A normalized path if it exists, else undefined or @see $thrw
 	*/
-	function _existsCallback(err, type, path,throwOn){
+	function _existsCallback(err, path,type,throwOn){
 		try{
 			if(err){
-				throwOn=throwOn.toLowerCase();
 				switch(err.code){
 					case 'ENOTDIR':
-						if(throwOn.endsWith('notfound')){
+						if(throwOn=='ENOTFOUND'){
 							//Trigger (but don't wait for) a check of where along the path the problem lay, logging when done...
 							findParentPromise(path).then(p=>{
 								let t=inodeType(p), parentIs=`${p} is a ${t}`;
@@ -328,7 +351,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 
 
 					case 'ENOENT': //parent dir exists and is readable, so we know inode doesn't exist
-						if(throwOn.endsWith('notfound')){
+						if(throwOn=='ENOTFOUND'){  //<-------------- check if we're throwing when it doesn't exist
 							// log.makeError(`${path} doesn't exist.`).throw(err.code);
 							var notfound=log.makeError('No such file or directory:',path).setCode('ENOTFOUND');
 							if(err.code=='ENOTDIR'){
@@ -340,24 +363,19 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 						}
 
 					case 'EACCES': //something along path is not readable, so we don't know status of inode
-						log.makeError(`Cannot determine if ${type ? type :'path'} exists (${path}), something along the way is not readable`,err).setCode('').throw();
+						log.throwCode('EACCES',`Cannot determine if ${type ? type :'path'} exists (${path}), something along the way is not readable`,err)
+						
 
 					default:
 						log.makeError('Please handle code:',err.code,err).setCode('BUGBUG').exec().throw();
 				}
-			}else if(throwOn.endsWith('exists')){
+			}else if(throwOn=='EEXISTS'){ //<-------------- check if we're throwing when it DOES exist
 				log.throwCode("EEXISTS","The inode exists: "+path);
 			}
 
 			//If arg#2 is passed, make sure the inode is the correct type, else throw
 			if(type){
 				let t=inodeType(path);
-				switch(cX.checkType(['string','array'],type)){
-					case 'string':
-
-					case 'array':
-
-				}
 				if((typeof type=='string' && t!=type)||(Array.isArray(type) && !type.includes(t)))
 					log.throwCode('ETYPE',`${path} is a '${t}', not a ${type}`);	
 			}
@@ -365,12 +383,12 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 			return _p.normalize(path);
 		
 		}catch(err){
-			if(throwOn){
-				//Make sure the 'where' is the individual func that uses this common callback...
-				log.makeError(err).changeWhere(1).throw();
-			}else{
-				return false;
-			}
+			//If it get's this far we ALWAYS throw (we may have returned false ^)
+			
+			if(err.isBLE && err.code!='BUGBUG')
+				throw err.changeWhere(1); //Point the error to the existsSync or existsPromise
+			else
+				throw log.makeError(err).setCode('BUGBUG'); //these errors concern this func
 		}
 	}
 
@@ -1159,13 +1177,15 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 		var c=0, e=0;
 		paths.forEach(function(part){
 			if(!existsSync(part,'dir')){
+				log.highlight('green',`existsSync(${part},'dir'):`,existsSync(part,'dir'))
 				c++;
 				fs.mkdirSync(part, mode)
-			}else
+			}else{
 				e++;
+			}
 		});
 		if(!existsSync(path,'dir'))
-			log.throw(`BUG: fs.mkdirSync threw no error but didn't create ${path}. Check if these exist: `,paths)
+			log.throw(`BUG: fs.mkdirSync did NOT fail, but neither did it create ${path}. Check if these exist: `,paths)
 		else
 			log.info(`Created ${path}. First ${e} existed, last ${c} created:`,paths);
 
