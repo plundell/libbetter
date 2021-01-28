@@ -232,7 +232,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	*
 	* @param string path 		@see _existsPre()
 	* @opt string|array type 	@see _existsPre()
-	* @opt string throwOn 	    @see _existsCallback(). Controlls if <ble EEXISTS>|<ble ENOTFOUND> can be thrown
+	* @opt string throwOn 	    @see _existsCallback(). Controlls if <ble EEXISTS>|<ble ENOTFOUND> can be thrown. Íf not passed @see @return
 	*
 	* @throws <BLE TypeError> 	Any arg is wrong type
 	* @throws <BLE EINVAL> 		$type or $throwOn are bad values
@@ -256,7 +256,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	/*
 	* @param string path 		@see _existsPre()
 	* @opt string|array type 	@see _existsPre()
-	* @opt string rejOn 	    @see _existsCallback(). Controlls if <ble EEXISTS>|<ble ENOTFOUND> can be rejected
+	* @opt string rejOn 	    @see _existsCallback(). Controlls if <ble EEXISTS>|<ble ENOTFOUND> can be rejected. If not passed @see @resolve
 	*
 	*
 	* @return Promise
@@ -320,7 +320,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	* @param error err	
 	* @param string path
 	* @param string|array type		Expected type of path. @see inodeType(). This can cause ETYPE even if $thrw==false
-	* @param string throwOn			In what situation should we throw? If the thing exists or if it doesn not
+	* @param string throwOn			In what situation should we throw? If the thing exists or if it doesn not. Íf not passed @see @return
 	*
 	* @throws <ble EEXISTS>	     	The inode exists. Only if $throwOn==EEXIST
 	* @throws <ble ENOTFOUND>		If WE KNOW the path doesn't exist (and $thrw==true) (could be because ENOTDIR along path). Only if $throwOn==ENOTFOUND
