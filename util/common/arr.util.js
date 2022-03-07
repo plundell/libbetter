@@ -31,6 +31,7 @@ module.exports=function export_aX({_log,vX}){
 	    ,move
 		,manualSort
 		,spliceBetween
+		,spliceCompareNestedProp
 	};
 
 
@@ -498,18 +499,55 @@ module.exports=function export_aX({_log,vX}){
 	/*
 	* Splice an item between each item of an array
 	*
+	* NOTE: Nothing happens if the array doesn't have at least one item already in it
+	*
 	* @param array arr  This array will be altered
 	* @param any item
 	*
-	* @return $arr    NOTe: we won't throw if this isn't an array, so it could return anything
+	* @throws TypeError
+	* @return void
 	*/
 	function spliceBetween(arr,item){
-		if(Array.isArray(arr) && arr.length>1){
+		vX.checkType('array',arr);
+		if(arr.length>1){
 			for(let i=arr.length-1;i>0;i--){
 				arr.splice(i,0,item);
 			}
 		}
-		return arr; 
+		return; 
+	}
+
+	/*
+	* Splice an item by comparing a prop on it to the same prop on every other item
+	*
+	* NOTE: Checking starts at the end and insert happens AFTER the first encountered item with a smaller prop
+	*
+	* @param array           arr     The array to be augmented
+	* @param object|array    item    The item to insert
+	* @param string|number   prop    The name of a property on @item AND every element in @arr
+	* @param number|string   deflt   Default insert position. Defaults to 'last'
+	*
+	* @throws TypeError
+	* @return array                  The passed in @arr
+	*/
+	function spliceCompareNestedProp(arr,item,prop,deflt='last'){
+		vX.checkType('array',arr);
+
+		let index=0;
+		if(typeof deflt=='number'){
+			index=deflt
+		}else if(deflt=='last'){
+			index=arr.length
+		}
+
+		for(let i=arr.length-1;i>-1;i--){
+			if(arr[i][prop]<=(item[prop])){
+				index=i+1;
+				break
+			}
+		}
+		arr.splice(index,0,item);
+		return arr;
 	}
 
 

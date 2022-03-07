@@ -46,7 +46,6 @@ module.exports=function exportTimer(dep={}){
         this.running=false;
 
         Object.defineProperty(this,'_log',{value:new BetterLog(this)});
-        this._betterEvents.onerror=this._log.error;
 
         Object.defineProperty(this,'_private',{value:{
             timeoutIds:[]

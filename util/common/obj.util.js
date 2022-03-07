@@ -25,6 +25,7 @@ module.exports=function export_oX({_log,vX}){
 		,'subObj':subObj
 		,'extract':extract
 		,'emptyObject':emptyObject
+		,removeEmptyKeys
 		,'getFirstMatchingProp':getFirstMatchingProp
 		,'groupChildrenByProp':groupChildrenByProp
 		,'groupKeysByValue':groupKeysByValue
@@ -291,7 +292,7 @@ module.exports=function export_oX({_log,vX}){
 	* @param string mode 	Accepted values are:
 	*							'any' - first item in $keys that exists on $obj will be returned, else null
 	*							'all' - first item in $keys that does NOT exist on $obj will be returned, else null
-	*                           'noother' - first key on $obj that does NOT exist in $arr will be returned, else null
+	*                           'noother' - first key on $obj that does NOT exist in $keys will be returned, else null
 	*                           'exact' - if the keys on $obj doesn't match those listed in $arr exactly one will be returned, else null
 	*
 	* @return mixed|null 	The first offending/matching key, or null (@see mode)
@@ -312,14 +313,14 @@ module.exports=function export_oX({_log,vX}){
 					if(!obj.hasOwnProperty(key))
 						return key; //this "required key" wasn't set on $obj
 				}
-				return true;
+				return null;
 
 			case 'noother': //object does not contain any other keys, but it may contain none
 				for(let key of Object.keys(obj)){
 					if(!keys.includes(key))
 						return key; //this key isn't included in the "approved $keys array"
 				}
-
+				return null
 			case 'exact':
 				return hasOwnProperties(obj,keys,'noother') && hasOwnProperties(obj,keys,'all');
 
@@ -452,6 +453,28 @@ module.exports=function export_oX({_log,vX}){
 		return extract(obj,Object.keys(obj));
 	}
 
+
+
+	/**
+	* Removed "empty" keys from an object
+	*
+	* @param object obj    Live object to be altered
+	* @param array empty   List of values deemed "empty", defaults to only undefined
+	*
+	* @return object | null     Object with all removed keys/values, or null if non where removed
+	*/
+	function removeEmptyKeys(obj,empty=[undefined]){
+		let removed={};
+		for(let key of Object.keys(obj)){
+			if(empty.includes(obj[key])){
+				removed[key]=obj[key];
+				delete obj[key];
+			}
+		}
+		return Object.keys(removed).length ? removed : null 
+
+	}
+
 	/*
 	* Find a value within a sub-object that matches a criteria
 	*
@@ -477,130 +500,6 @@ module.exports=function export_oX({_log,vX}){
 		return Object.values(obj).find(crit);
 	}
 
-
-	/*
-	* Check if a nested prop exists on an object
-	*
-	* NOTE: this will NOT alter $keypath
-	*
-	* @throws <ble TypeError>
-	*
-	* @return boolean
-	*/
-	function nestedHas(obj,keypath){
-		try{
-			return typeof nestedGet(obj,vX.copy(keypath))!='undefined'
-		}catch(err){
-			switch(err.code){
-				case 'TypeError':
-					throw err;
-				case 'EMISMATCH':
-					return false;
-				default:
-					log.error("BUGBUG",'nestedGet() threw an unexpected error:',err);
-					return false;
-			}
-		}
-	}
-
-
-	/*
-	* Get a nested child from a multi-level object or array
-	*
-	* NOTE: $keypath will be altered by this function, containing any remaining keys after recursion has happened to the available depth
-	*
-	* @param array|object obj
-	* @param array keypath 					Array of keys, each pointing to one level deeper. GETS ALTERED
-	* @param bool returnLastObject 			Default false => if a nested property doesn't exist, undefined will be returned. 
-	*											true=>the last existing object will be returned and the keypath reflects
-	*											the remaining keys. If keypath is empty we know we got everything
-	*
-	* @throws <ble TypeError> 		If $keypath is not an array
-	* @throws <ble EMISMATCH> 		If there is a non-object along keypath
-	*
-	* @return mixed|[mixed,false|array]  	The requested value, or @see $returnLastObject
-	*/
-	function nestedGet(obj,keypath,returnLastObject=false){
-		// _log.traceFunc(arguments)
-		vX.checkTypes([['object','array'],'array'],[obj,keypath]); //throw typeerror
-
-		var subobj=obj, address=[];
-		while(keypath.length){
-			//Starting this loop means we're trying to go down one level...
-			if(typeof subobj!='object')
-				//...having a non-object means that's impossible, so throw an error
-				_log.throwCode('EMISMATCH',`Cannot get nested value, non-object @ ${address.join('.')}:`,subobj, obj);
-
-			else if(!subobj.hasOwnProperty(keypath[0])){
-				//...having nothing also means that's impossible, but here we offer an option, see arg #3
-				if(returnLastObject)
-					//To know if this is not the desired position, the caller has to confirm that keypath isn't empty
-					return subobj;
-				else
-					return undefined;
-			}
-
-			//We've now confirmed there's one more step available, go there and restart loop
-			subobj=subobj[keypath[0]];
-			address.push(keypath.shift());
-			// _log.debug(address.join('.'),subobj)
-		}
-
-		//At this point we've successfully navigated to the desired location, so return the value there
-		return subobj;
-	}
-
-
-	/*
-	* Set a nested child on a multi-level object or array
-	*
-	* @param obj array|object
-	* @param keys array 		Array of keys, each pointing to one level deeper. NOTE: this array is altered
-	* @param mixed value 		
-	* @param bool create 		Default false. If true the path will be created (with objects only)
-	*
-	* @throws TypeError 		If $keys is not an array
-	* @throws EINVAL 			If $keys is empty
-	* @throws EFAULT 			The nested object doesn't exist, and we're not creating
-	* @throws EMISMATCH 		Somewhere along the path is a non-object
-	*
-	* @return mixed  			The value set
-	*/
-	function nestedSet(obj,keys,value,create=false){
-		
-		vX.checkTypes([['object','array'],'array'],[obj,keys]); //throw typeerror
-
-		var key=keys.pop();
-		if(!key)
-			_log.throwCode("EINVAL","No keys specified, cannot set value on object: ",value,obj);
-
-		//For logging vv, we need an un-altered keys array so we can determine where a nested value was
-		var _keys=vX.copy(keys);
-
-		//Get the nested object we'll be setting on (also works if $keys are now empty)
-		var subobj=nestedGet(obj,keys,true); //true=>return last existing object so we can create the 
-		let address=_keys.splice(-keys.length).join('.'); //_keys=[1,2,3]  keys=[2,3]  =>  1.2
-		if(create){											//      rest here
-			//If any keys didn't exist, we create them now
-			var k;
-			while(k=keys.shift()){
-				subobj[k]={}; //create the next level
-				subobj=subobj[k]; //move the "pointer", if you will, to that level
-			}
-			
-		}else if(keys.length){
-			_log.makeCode('EFAULT',`Entire path didn't exist. Not creating remaining @ '${address}':`,obj).throw();
-		}
-			
-
-		if(typeof subobj!='object') //array or object works
-			_log.throwCode('EMISMATCH',`Halfway down the nested objects we encountered a non-object @ '${address}':`,obj)
-		
-
-		//If we're still running here. obj will be the object we're setting on, key the prop we're setting and value 
-		//the value, so just get on with it and return
-		return subobj[key]=value;
-	}
 
 
 

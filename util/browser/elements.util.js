@@ -58,6 +58,8 @@ module.exports=function export_elemX(bu){
 		,'isDisplayNone':isDisplayNone
 		,'hideElement':hideElement
 		,'showElement':showElement
+		,onOutsideClick
+		,hideOnBackgroundClick
 		,getOrigin
 		,nodeType
 		,multiQuerySelector
@@ -1943,6 +1945,53 @@ module.exports=function export_elemX(bu){
 		return;
 	}
 
+	/*
+	* Call a callback when clicking outside an element
+	*
+	* @param HTMLElement elem
+	* @param function cb        Called with (click event, unregister func)
+	*
+	* @return function          The function to unregister the listener
+	*/
+	function onOutsideClick(elem,cb){
+		elem=getLiveElement(elem);
+		var unregister=bu.once(()=>{
+			document.body.removeEventListener('click',listen);
+		});
+		var listen=(evt)=>{
+			if(evt.target==elem || elem.contains(evt.target))
+				return;
+			cb(evt,unregister);			
+		}
+
+		document.body.addEventListener('click',listen);
+		return unregister;
+	}
+
+
+	/*
+	* Hide an element when clicking outside it
+	*
+	* @param HTMLElement elem
+	* @param function cb        Optional callback which also get's called on hide
+	*
+	* @return function          A function which hides the element right now, removes the listener and calls the callback
+	*/
+	function hideOnBackgroundClick(elem,cb){
+		cb=(typeof cb=='function' ? bu.once(cb) : ()=>{})
+
+		let unreg=onOutsideClick(elem,(evt,unreg)=>{
+			unreg();
+			hideElement(elem);
+			cb(evt);
+		})
+
+		return bu.once(()=>{
+			unreg();
+			hideElement(elem);
+			cb();
+		});
+	}
 
 
 	function getOrigin(elem){

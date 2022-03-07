@@ -106,10 +106,10 @@ module.exports=function export_fX({_log,vX,aX}){
 	/*
 	* Change the name of a function. 
 	*
-	* @param function fn
+	* @param function fn     The name is changed on the live function
 	* @param string name
 	*
-	* @return $fn
+	* @return $fn            Same function that's passed in
 	*/
 	function renameFunction(fn,name){
 		var args=Array.from(arguments);

@@ -13,6 +13,7 @@ module.exports=function export_nX({_log,vX,oX}){
 		,dynamicDelete
 		,buildNestedPath
 		,dynamicSet
+		,'nestedSet':dynamicSet
 		,nestedAssign
 		,nestedFillOut
 		,getNestedProps
@@ -34,10 +35,13 @@ module.exports=function export_nX({_log,vX,oX}){
 	*/
 	function nestedGet(target,keys){
 		try{
+			if(arguments.length<2){
+				throw _log.makeErrorCode("EINVAL","Expected 2 arguments, target and keys, got:",arguments);
+			}
 			var address=[];
 			for(let key of keys){
 				if(typeof target!='object'){
-					_log.throwCode('EMISMATCH',`Cannot get nested value, non-object @ ${address.join('.')}:`,target);
+					throw _log.makeErrorCode('EMISMATCH',`Cannot get nested value, non-object @ ${address.join('.')}:`,target);
 				}
 				address.push(key);
 				if(target.hasOwnProperty(key)){
@@ -56,7 +60,7 @@ module.exports=function export_nX({_log,vX,oX}){
 				vX.checkTypes([['object','array'],'array'],arguments); //throws
 
 			//Don't throw on bugs
-			_log.makeError("Unexpected error.",arguments,err).setCode("BUGBUG").exec();
+			_log.makeErrorCode("BUGBUG","Unexpected error.",arguments,err).exec();
 			return undefined;
 		}
 	}
@@ -145,10 +149,75 @@ module.exports=function export_nX({_log,vX,oX}){
 			}
 		}catch(err){
 			if(err instanceof TypeError)
-				vX.checkTypes([['object','array'],['array','string','number']],arguments);
+				vX.checkTypes([['object','array'],['array','string','number']],arguments); //may throw new error
 			throw _log.makeError(err);
 		}
 	}
+
+
+	// /*
+	// * Set a nested child on a multi-level object or array
+	// *
+	// * @param obj array|object
+	// * @param keys array 		Array of keys, each pointing to one level deeper. NOTE: this array is altered
+	// * @param mixed value 		
+	// * @param bool create 		Default false. If true the path will be created (with objects only)
+	// *
+	// * @throws TypeError 		If $keys is not an array
+	// * @throws EINVAL 			If $keys is empty
+	// * @throws EFAULT 			The nested object doesn't exist, and we're not creating
+	// * @throws EMISMATCH 		Somewhere along the path is a non-object
+	// *
+	// * @return mixed  			The value set
+	// */
+	// function nestedSet(obj,keys,value,create=false){
+		
+	// 	vX.checkTypes([['object','array'],'array'],[obj,keys]); //throw typeerror
+
+	// 	var key=keys.pop();
+	// 	if(!key)
+	// 		_log.throwCode("EINVAL","No keys specified, cannot set value on object: ",value,obj);
+
+	// 	//For logging vv, we need an un-altered keys array so we can determine where a nested value was
+	// 	var _keys=vX.copy(keys);
+
+	// 	//Get the nested object we'll be setting on (also works if $keys are now empty)
+	// 	var subobj=nestedGet(obj,keys,true); //true=>return last existing object so we can create the 
+	// 	let address=_keys.splice(-keys.length).join('.'); //_keys=[1,2,3]  keys=[2,3]  =>  1.2
+	// 	if(create){											//      rest here
+	// 		//If any keys didn't exist, we create them now
+	// 		var k;
+	// 		while(k=keys.shift()){
+	// 			subobj[k]={}; //create the next level
+	// 			subobj=subobj[k]; //move the "pointer", if you will, to that level
+	// 		}
+			
+	// 	}else if(keys.length){
+	// 		_log.makeCode('EFAULT',`Entire path didn't exist. Not creating remaining @ '${address}':`,obj).throw();
+	// 	}
+			
+
+	// 	if(typeof subobj!='object') //array or object works
+	// 		_log.throwCode('EMISMATCH',`Halfway down the nested objects we encountered a non-object @ '${address}':`,obj)
+		
+
+	// 	//If we're still running here. obj will be the object we're setting on, key the prop we're setting and value 
+	// 	//the value, so just get on with it and return
+	// 	return subobj[key]=value;
+	// }
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 	/*

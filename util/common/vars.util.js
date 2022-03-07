@@ -130,6 +130,13 @@ module.exports=function export_vX({varType,logVar,_log}){
 					else
 						expectedType=expectedType.slice(0,-1)
 				}
+				if(expectedType.endsWith('!')){
+					expectedType=expectedType.slice(0,-1)
+					if(isEmpty(got)){
+						expectedType='non-empty '+expectedType;
+						break;
+					}
+				}
 
 				expectedType=lookup[expectedType] || expectedType;
 				let gotType=varType(got);
@@ -191,6 +198,7 @@ module.exports=function export_vX({varType,logVar,_log}){
 			default:
 				_log.throw("BUGBUG: checkType() expected arg#1 to be string/array/object/function, got: "+logVar(expectedType));
 		}
+
 		if(falseOrCaller===true)
 			return false;
 		else{
@@ -278,7 +286,7 @@ module.exports=function export_vX({varType,logVar,_log}){
 		if(!checkType('object',types,true)) 
 			_log.makeError("checkProps() expects arg#2 to be an object, got:",types).throw("BUGBUG");
 
-		if(!checkType('object',types,obj)) 
+		if(!checkType('object',obj,true)) 
 			_log.makeError(`Expected an object with certain props, but didn't even get an object, got a ${varType(obj)}:`,obj).throw('TypeError');
 
 		
@@ -293,13 +301,15 @@ module.exports=function export_vX({varType,logVar,_log}){
 					}
 					
 					//If we're here we're going to throw...
-					var msg=` prop '${key}'.`,code;
+					var msg=` prop '${key}'.`
+						,code;
 					if(obj.hasOwnProperty(key)){
 						msg='Bad'+msg;
 						code='EINVAL';
 					}else{
 						msg='Missing'+msg;
 						code='EMISSING';
+						err=undefined;
 					}
 					if(falseOrCaller){
 						msg=falseOrCaller+'(): '+msg;
@@ -745,7 +755,7 @@ module.exports=function export_vX({varType,logVar,_log}){
 					}
 					let wrapper=trimmed.substr(0,1)+trimmed.substr(-1); //NOTE substring() and substr() don't work the same!
 					if(wrapper=='{}'||wrapper=='[]'){
-						err=_log.makeError(`${exp}, which this probably is, but poorly formated. ${jsonErr.message}`)
+						err=_log.makeError(`${exp}, which this probably is, but poorly formated:\n`,jsonErr.message)
 							.setCode("EFORMAT");
 						
 						//See if we can find where the issue occured...

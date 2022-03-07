@@ -378,7 +378,7 @@ module.exports=function export_pX({_log,vX,aX,fX}){
 		r.promise=Promise.all(handledPromises).then(()=>{return (r.err?Promise.reject(r):r)}) 
 
 		//...and one that always resolves
-		r.always=Promise.all(handledPromises).then(()=>r);
+		r.always=cb=>Promise.all(handledPromises).then(()=>cb(r));
 
 		return r;
 	}

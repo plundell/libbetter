@@ -1726,8 +1726,8 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 	/*
 	* 
 	* @param @opt ...string flag 	One or more flags. The following are available:
-	*									- <iface>: one or more interface names to include (don't include <>)
-	*									- !<iface>: one or more interface names to exclude (don't include <>)
+	*									- <iface>: one or more interface names to include (don't type <>)
+	*									- !<iface>: one or more interface names to exclude (don't type <>)
 	*									- One of the prop names: address,netmask,family,mac,internal,cidr, will
 	*										return that prop instead of object for each address block
 	*									- 4 or 6 to only include that family
@@ -1781,7 +1781,6 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 	*/
 	function getIpAddresses(...flags){
 		var interfaces=os.networkInterfaces();
-		var iface;
 
 		//First we parse the passed in flags
 		var family=cX.extractItems(flags,[4,6]).find(f=>f); //first mentioned family is included
@@ -1810,26 +1809,34 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 
 		//Filter on address family
 		if(family){
-			entry.addHandling('Only including IPv'+family);
-			for(iface in interfaces) interfaces[iface]=interfaces[iface].filter(a=>a.family=='IPv'+family);
+			family='IPv'+family;
+			entry.addHandling('Only including '+family);
+			for(let iface in interfaces){
+				interfaces[iface]=interfaces[iface].filter(a=>a.family==family);
+			} 
 		}
 
 
 		//Get only specific prop for each iface
 		if(prop){
-			entry.addHandling(`Getting prop '${prop}'`);
-			for(iface in interfaces){
-				interfaces[iface].forEach((a,i)=>interfaces[iface][i]=a[prop]);
+			entry.addHandling(`Only keeping prop '${prop}'`);
+			for(let iface in interfaces){
+				for(let i in interfaces[iface]){
+					interfaces[iface][i]=interfaces[iface][i][prop]; //replaces each address-object with single prop from the object
+				}
+				// interfaces[iface].forEach((a,i)=>interfaces[iface][i]=a[prop]);
 			} 
 		}
 
 		//Only keep first address. Replaces array of addresses with single address (which  may be string or object
 		//depending on if specific prop has been selected ^)
-		if(firstAddress)
+		if(firstAddress){
 			entry.addHandling(`Only keeping first address for each interface`);
-			for(iface in interfaces){
-				interfaces[iface]=interfaces[iface][0];
+			for(let iface in interfaces){
+				interfaces[iface]=interfaces[iface][0]; //replace each interfaces array of addresses (which could be strings or objects)
+														//with the first one (ie. now we have string|object instead of array)
 			} 
+		}
 
 		//If we specified any iface to exclude, remove them
 		if(exclude){
@@ -1837,24 +1844,28 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 			exclude.forEach(iface=>delete interfaces[iface]);
 		}
 		
-		//Now we add the type of interface and the interface name
+		//Discard unwanted types of interfaces
 		var types=getInterfaces();
-		for(let iface in interfaces){
-			
-			//If it's not the right type, get rid of it
-			if(type && types[iface]!=type){
-				delete interfaces[iface];
-				continue;
-			}
-
-			//For same handling we turn everything into an array (don't worry, it doesn't get saved)
-			cX.makeArray(interfaces[iface]).forEach(block=>{
-				if(typeof block=='object'){
-					block.iface=iface;
-					block.type=types[iface];
+		if(type){
+			for(let iface in interfaces){
+				if(types[iface]!=type){
+					delete interfaces[iface];
 				}
-			})
+			}
+		}
 
+		//If we're returning one or more address-objects we want to include the iface name and the type to each object
+		breakpoint:
+		for(let iface in interfaces){
+			for(let a of cX.makeArray(interfaces[iface])){
+				if(typeof a!='object'){
+					//a can now be a single word or an object
+					break breakpoint;
+				}else{
+					a.iface=iface;
+					a.type=types[iface];
+				}
+			}
 		}
 
 		//If we specified any iface to include, remove all others
@@ -1970,32 +1981,40 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 		
 		//Inherit from BetterEvents and set failed emits to log to our log
 		BetterEvents.call(this);
-		Object.defineProperty(this._betterEvents,'onerror',{value:this.log.error});
 		
 
 		//Define the callback which runs with a buffer of lines having been written to stdout (but delayed/grouped using a buffer vv)
 		var onMonitorBuffer=(buffer)=>{ //format of buffer: {ip:[line4,line2,line1],link:[line3]}
 			try{
+				if(!this.iface){
+					log.error("BUGBUG: Cannot monitor interface because none is set on this object");
+					return;
+				}
 				try{
-					var cidrs=getIpAddresses('cidr', this.iface)
+					var cidrs=getIpAddresses('cidr', this.iface) || []; //array or strings, eg. ["192.168.66.116/24", "fe80::d938:f084:fd00:28b/64"]
+					if(!Array.isArray(cidrs)){
+						throw log.makeError(`BUGBUG: getIpAddresses('cidr', ${this.iface}) didn't return an array or undefined, instead we got:`,cidrs);
+					}
 				}catch(err){
 					this.log.warn('Problem getting IP addresses, assuming none are set',err);
+					cidrs=[];
 				}
-				cidrs=cidrs||[];
+
+				
 
 				//Check for any added or deleted
-				cidrs.forEach(cidr=>{
+				for(let cidr of cidrs){
 					if(!this.addresses.includes(cidr)){
 						this.debug(`${this.iface} ip added:`,cidr);
 						this.emit('ipadd',cidr);
 					}
-				})
-				this.addresses.forEach(cidr=>{
+				}
+				for(let cidr of this.addresses){
 					if(!cidrs.includes(cidr)){
 						this.debug(`${this.iface} ip deleted:`,cidr);
 						this.emit('ipdel',cidr);
 					}
-				})
+				}
 
 				//Replace old for next time we check
 				this.addresses=cidrs;
