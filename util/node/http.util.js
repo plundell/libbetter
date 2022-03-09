@@ -164,7 +164,7 @@ module.exports=function export_httpX({BetterLog,cX,fsX,netX,pump,...dep}){
 	*							'full'   - a <URL> object, @see native 'url.parse'
 	*							'slim'   - an object with props protocol,host,port,path 
 	*
-	* @throw EFAULT 		If we couldn't at least get a host
+	* @throw EINVAL 		If we couldn't at least get a host
 	*
 	* @return object 		@see $mode				
 	*/
@@ -177,7 +177,7 @@ module.exports=function export_httpX({BetterLog,cX,fsX,netX,pump,...dep}){
 
 		//Make sure the url is good
 		if(!obj.host && !obj.hostname)
-			log.throwCode('EFAULT',`No host found in the url (original, parsed):`,url,obj);
+			throw log.makeErrorCode('EINVAL',`No host found in the url '${url}':`,obj);
 
 		switch(mode){
 			case 'slim':

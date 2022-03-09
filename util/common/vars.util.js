@@ -916,12 +916,20 @@ module.exports=function export_vX({varType,logVar,_log}){
 	* @return any 	@see $x
 	*/
 	function copy(x){
-		switch(varType(x)){
+		let t=varType(x);
+		switch(t){
 			case 'arguments':
 				x=Array.from(x);
 			case 'object':
 			case 'array':
-				return JSON.parse(JSON.stringify(x));
+				try{
+					return JSON.parse(JSON.stringify(x));
+				}catch(e){
+					if(e.message.startsWith('Converting circular structure to JSON')){
+						e=_log.makeError(e).addExtra(x);
+					}
+					throw e;
+				}
 			case 'node':
 				return x.cloneNode(true);
 			case 'nodelist':
