@@ -1786,7 +1786,7 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 		var family=cX.extractItems(flags,[4,6]).find(f=>f); //first mentioned family is included
 		var prop=cX.extractItems(flags,['address','netmask','family','mac','internal','cidr']).find(p=>p); //first mentioned prop 
 		var type=cX.extractItems(flags,['wired','wireless','loopback']).find(t=>t); //first mentioned type 
-
+		var silent=cX.extractItem(flags,'silent');
 		var exclude=flags.filter(iface=>iface.substring(0,1)=='!').map(iface=>iface.substring(1));
 
 		//A shorthand...
@@ -1802,15 +1802,16 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 		//Any strings now remaining among the flags are assumed to be interface names we want to include
 		var include=flags.filter(iface=>iface.substring(0,1)!='!')
 
-
-		var entry=log.makeEntry('debug',"Got ip addresses:");
+		if(!silent){
+			var entry=log.makeEntry('trace',"Got ip addresses:");
+		}
 
 		//Now the actual processing:
 
 		//Filter on address family
 		if(family){
 			family='IPv'+family;
-			entry.addHandling('Only including '+family);
+			silent || entry.addHandling('Only including '+family);
 			for(let iface in interfaces){
 				interfaces[iface]=interfaces[iface].filter(a=>a.family==family);
 			} 
@@ -1819,7 +1820,7 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 
 		//Get only specific prop for each iface
 		if(prop){
-			entry.addHandling(`Only keeping prop '${prop}'`);
+			silent || entry.addHandling(`Only keeping prop '${prop}'`);
 			for(let iface in interfaces){
 				for(let i in interfaces[iface]){
 					interfaces[iface][i]=interfaces[iface][i][prop]; //replaces each address-object with single prop from the object
@@ -1831,7 +1832,7 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 		//Only keep first address. Replaces array of addresses with single address (which  may be string or object
 		//depending on if specific prop has been selected ^)
 		if(firstAddress){
-			entry.addHandling(`Only keeping first address for each interface`);
+			silent || entry.addHandling(`Only keeping first address for each interface`);
 			for(let iface in interfaces){
 				interfaces[iface]=interfaces[iface][0]; //replace each interfaces array of addresses (which could be strings or objects)
 														//with the first one (ie. now we have string|object instead of array)
@@ -1840,7 +1841,7 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 
 		//If we specified any iface to exclude, remove them
 		if(exclude){
-			entry.addHandling(`Excluding these interfaces: ${exclude.join(', ')}`);
+			silent || entry.addHandling(`Excluding these interfaces: ${exclude.join(', ')}`);
 			exclude.forEach(iface=>delete interfaces[iface]);
 		}
 		
@@ -1874,7 +1875,7 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 				break;
 			case 1:
 				let iface=include[0];
-				entry.addHandling(`Returning single interface: ${iface}`).addExtra(interfaces[iface]).exec();
+				silent || entry.addHandling(`Returning single interface: ${iface}`).addExtra(interfaces[iface]).exec();
 				return interfaces[iface]; //depending on $prop this could be a object/string/array, see ^^
 			default:
 				entry.addHandling(`Only keeping these interfaces: ${include.join(', ')}`);
@@ -1884,10 +1885,21 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 		//Finally, if we just want the first iface...
 		if(firstIface){
 			let iface=Object.keys(interfaces)[0];
-			entry.addHandling(`Returning first interface: ${iface}`)
+			silent || entry.addHandling(`Returning first interface: ${iface}`)
 			interfaces=interfaces[iface]
 		}
-		entry.addExtra(interfaces).exec();
+
+		//Possibly log
+		if(!silent){
+			if(cX.isEmpty(interfaces)){
+				entry.message="No IP addresses found.";
+				entry.setLvl('note');
+			}else{
+				entry.addExtra(interfaces)
+			}
+			entry.exec();
+		}
+
 		return interfaces
 	}
 
