@@ -1,6 +1,6 @@
 //simpleSourceMap=/my_modules/util/common/promise.util.js
 //simpleSourceMap2=/lib/util/common/promise.util.js
-/*
+/**
 * This module should only be required in NodeJS. If using in browser, please bundle with eg. Browserify
 *
 * This module contains helper/util functions related to PROMISES
@@ -12,27 +12,29 @@ module.exports=function export_pX({_log,vX,aX,fX}){
 
 	//Export
 	var _exports={
-		'sleep':sleep
-		,'toPromise':toPromise
-		,'createPromiseFunc':createPromiseFunc
+		sleep
+		,toPromise
+		,createPromiseFunc
 		,'promisify':createPromiseFunc //alias
 		,promisifyCallback
-		,'firstResolved':firstResolved
+		,firstResolved
 		,rejectOnUnsettledTimeout
 		,runOnUnsettledTimeout
-		,'exposedPromise':exposedPromise
-		,'groupPromises':groupPromises
-		,'thenCallback':thenCallback
+		,exposePromiseStatus
+		,exposedPromise
+		,groupPromises
+		,thenCallback
 	}
 
 
-	/*
+	/**
 	* Simulate sleeping by creating a promise that resolves x ms later
 	*
 	* NOTE: This function should be called with the 'await' prefix from within an 'async' function
 	* 
-	* @param integer ms 	The number of milliseconds to sleep
-	* @param bool 	 log 	If true, a message will be logged to the console before and after sleeping
+	* @param integer ms 	  The number of milliseconds to sleep
+	* @param any returnValue  The value to resolve with after the sleep.
+	* @param bool 	 log 	  If true, a message will be logged to the console before and after sleeping
 	*
 	* @return Promise  		
 	*/
@@ -51,7 +53,7 @@ module.exports=function export_pX({_log,vX,aX,fX}){
 	}
 
 
-	/*
+	/**
 	* Turn smth into a promise. 
 	*
 	* @param function|<Promise>|any x 	NOTE: if function it gets called immediately
@@ -74,7 +76,7 @@ module.exports=function export_pX({_log,vX,aX,fX}){
 
 	
 
-	/*
+	/**
 	* Wrap a function in another function that ensures the returned value
 	* will be a Promise.
 	*
@@ -97,7 +99,7 @@ module.exports=function export_pX({_log,vX,aX,fX}){
 
 
 
-	/*
+	/**
 	* Call an async function which is expecting a callback as last argument, returning a 
 	* promise instead
 	*
@@ -119,7 +121,7 @@ module.exports=function export_pX({_log,vX,aX,fX}){
 
 
 
-	/*
+	/**
 	* @return Promise(mixed,err)	Resolves with value of first resolved promise, rejects if none resolve
 	*/
 	function firstResolved(promises,logRejected=false){
@@ -165,17 +167,20 @@ module.exports=function export_pX({_log,vX,aX,fX}){
 
 
 
-	/*
+	/**
 	* Reject a promise after a timeout if it remains unfinished 
 	*
 	* This is suitable when you intend to STOP WAITING after the $timeout.
+	* 
+	* NOTE: This will prevent the promise producing an *UncaughtRejection* which may lead to it failing silently
+	*       if you havn't set a .catch() anywhere or made use of the $abandonHandler
 	*
-	* @param <Promise> promise
-	* @param number timeout
-	* @opt function abandonHandler   Promise.race would normally abandon $promise if the $timeout expires first, pass this function to 
-	*	                             be called with the $promise in that case
-	*
-	* @return Promise(any, any|'timeout')
+	* @param @anyorder number timeout
+	* @param @anyorder <Promise> promise  
+	* @param @anyorder function abandonHandler   Optional. Handler which runs after $promise finishes if $timeout 
+	* 											 expires before $promise finishes. Called with error-first convention.
+	* 
+	* @return Promise(any, any|'timeout')        Resolves or rejects like $promise, but also rejects with
 	*/
 	function rejectOnUnsettledTimeout(promise,timeout,abandonHandler){
 		vX.checkTypes(['promise','number','function*'],arguments);
@@ -196,10 +201,11 @@ module.exports=function export_pX({_log,vX,aX,fX}){
 
 
 
-	/*
-	* Run a $callback if a $promise remains unfinished (resolved or rejected) after a $timeout WITHOUT affecting the promise
+	/**
+	* Run a $callback if a $promise remains pending after a $timeout 
 	*
-	* This is suitable when you intend to KEEP WAITING after the $timeout, eg. use to show 'still waiting' message.
+	* NOTE: This will prevent the promise producing an *UncaughtRejection* which may lead to it failing silently
+	*       if you havn't set a .catch() anywhere
 	*
 	* @param @anyorder function callback   NOTE: any error thrown by this will not be caught
 	* @param @anyorder number timeout
@@ -228,11 +234,11 @@ module.exports=function export_pX({_log,vX,aX,fX}){
 
 
 
-	/*
+	/**
 	* Create a Promise, breakout resolve and reject, return as object. That way you can return the promise while
 	* keeping resolve/reject to use async
 	*
-	* @return object{promise,resolve,reject,callback[,clear]}
+	* @return object{promise,resolve,reject,callback,inspect[,clear]}
 	*/
 	function exposedPromise(timeout=null){
 		var inspect={status:'pending',result:undefined,done:false}
@@ -261,7 +267,7 @@ module.exports=function export_pX({_log,vX,aX,fX}){
 
 
 
-	/*
+	/**
 	* Exposes a group of promises, see @return
 	*
 	* @param array|object promises 	All items will be sent to @see toPromise(). If object the keys will be returned by r.remainingKeys()
@@ -273,7 +279,21 @@ module.exports=function export_pX({_log,vX,aX,fX}){
 	* ProTip: if you need to know the index of the callback you can create a "fake emitter" like so: {emit:(evt,value,index)=>{switch(evt){...}}}. Just don't
 	*         forget that one of the events is 'finished'
 	*
-	* @return object 	See top and bottom of function body
+	* @return object 	{
+	*						promises  : array|object   (matches arg #1, values are <Promise>)
+	*						resolved  : array|object   (matches arg #1, values are <Promise>)
+	*						rejected  : array|object   (matches arg #1, values are <Promise>)
+	*						results   : array|object   (matches arg #1, values are <Promise>)
+	*						err       : null|string
+	*						length    : number         (promises.length)
+	*						finished  : number         (results.lengt)
+	*						executing : number         (length-finished)
+	*						progress  : number         (0-100)
+	*						status    : array|object   (matches arg #1, values are strings)
+	*						always    : function(callback)
+	*						timeout   : function(callback,ms)
+	*						promise   : <Promise>       (Promise.all(promises))
+	*					}
 	*/
 	function groupPromises(promises,...optional){
 		
@@ -386,7 +406,7 @@ module.exports=function export_pX({_log,vX,aX,fX}){
 
 
 
-	/*
+	/**
 	* Call a callback on both success/fail in a promise flow, returning whatever the callback returns
 	*
 	* @param <Promise>|any promise 

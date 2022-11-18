@@ -208,6 +208,8 @@ module.exports=function export_aX({_log,vX}){
 	*
 	* @param array A
 	* @param array B
+	* @flag noCheck
+	* @flag undefOnEmpty
 	*
 	* @return [[only in A],[only in B],[in both]] 	Returns array with 3 child arrays
 	*/

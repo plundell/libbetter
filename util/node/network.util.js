@@ -2060,10 +2060,11 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 			    // stored and the event emitted, so you can check/listen for that manually)
 			    var connected=(this.up==true && this.addresses.length>0);
 			    if(this.connected!=connected){
-			    	this.connected=connected;
+			    	this.connected=connected; //toggle the value
 			    	if(connected){
 			    		connected='connect';
-			    		changes.push(['connect',this.addresses]); //emits last
+			    		let addresses=this.addresses.slice(); //so it doesn't have time to change
+			    		changes.push(['connect',addresses]); //emits last
 			    	}else{
 			    		connected='disconnect'
 			    		changes.unshift(['disconnect']); //emits first
@@ -2099,42 +2100,48 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 			this.log.info("Got flag, using dynamic noise filter...")
 			var disconnectAt,lastIP=this.addresses,lastChange=0;
 			this.on('disconnect',()=>disconnectAt=Date.now())
-			this.on('connect',(addresses)=>{
-				if(!disconnectAt)
-					return
+			this.on('connect',(function onConnect(addresses){
+				try{
+					if(!disconnectAt)
+						return
 
-				//If we don't get the same addresses, we've connected to another network or renegotiated with 
-				//the dhcp or something, but regarless it's not the situation we're looking for...
-				if(!cX.sameArrayContents(lastIP,addresses)){
-					lastIP=addresses;
-					return;
+					if(!addresses || !addresses.length){
+						this.log.warn("BUGBUG: 'connect' event fired without any addresses");
+					}
+
+					//If we don't get the same addresses, we've connected to another network or renegotiated with 
+					//the dhcp or something, but regarless it's not the situation we're looking for...
+					if(!cX.sameArrayContents(lastIP||[],addresses||[])){
+						lastIP=addresses;
+						return;
+					}
+
+					//If we were disconnected for more than 5 seconds there is probably something else happening, 
+					//we're guessing, so just stop so we don't mess up the algo
+					let delay=Date.now()-disconnectAt;
+					if(delay>5000)
+						return;
+
+					//Buffered events + however 'ip monitor' works can cause this scenario
+					// t=0 	 monitor spits out nonsense, triggering buffer
+					// t=60  monitor spits out disconnect, the event of interest
+					// t=100 disconnect is emitted and timmer started here ^^
+					// t=320 monitor spits out nonsense, triggering buffer
+					// t=340 monitor spits out connect, the other event of interest
+					// t=420 connect is emitted and delay calulated to 420-100=320 when the real delay was 340-60=280
+					//Which means the optimal thing would be to figure out how to disregard the nonense (hard), but 
+					//the next best thing is to increase the delay 100=>320, which would cause this next time
+					// t=0 	 monitor spits out nonsense, triggering buffer
+					// t=50  monitor spits out disconnect, the event of interest
+					// t=320 disconnect is emitted and timmer started here ^^
+					// t=360 monitor spits out nonsense, triggering buffer
+					// t=390 monitor spits out connect, the other event of interest
+					// t=680 connect is emitted and delay calulated to 680-320=360 when the real delay was 390-50=340
+					//so we adjust 320=>360.
+					this.log.note(`dynamicNoiseFilter, increasing delay ${this.buffer.delay} => ${delay} ms`)
+					this.buffer.delay=delay; //uses setter ^^
 				}
-
-				//If we were disconnected for more than 5 seconds there is probably something else happening, 
-				//we're guessing, so just stop so we don't mess up the algo
-				let delay=Date.now()-disconnectAt;
-				if(delay>5000)
-					return;
-
-				//Buffered events + however 'ip monitor' works can cause this scenario
-				// t=0 	 monitor spits out nonsense, triggering buffer
-				// t=60  monitor spits out disconnect, the event of interest
-				// t=100 disconnect is emitted and timmer started here ^^
-				// t=320 monitor spits out nonsense, triggering buffer
-				// t=340 monitor spits out connect, the other event of interest
-				// t=420 connect is emitted and delay calulated to 420-100=320 when the real delay was 340-60=280
-				//Which means the optimal thing would be to figure out how to disregard the nonense (hard), but 
-				//the next best thing is to increase the delay 100=>320, which would cause this next time
-				// t=0 	 monitor spits out nonsense, triggering buffer
-				// t=50  monitor spits out disconnect, the event of interest
-				// t=320 disconnect is emitted and timmer started here ^^
-				// t=360 monitor spits out nonsense, triggering buffer
-				// t=390 monitor spits out connect, the other event of interest
-				// t=680 connect is emitted and delay calulated to 680-320=360 when the real delay was 390-50=340
-				//so we adjust 320=>360.
-				this.log.note(`dynamicNoiseFilter, increasing delay ${this.buffer.delay} => ${delay} ms`)
-				this.buffer.delay=delay; //uses setter ^^
-			})
+			}).bind(this));
 		}
 
 

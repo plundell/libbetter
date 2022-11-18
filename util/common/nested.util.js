@@ -259,7 +259,7 @@ module.exports=function export_nX({_log,vX,oX}){
 	*
 	* @param object target 	The object that gets changed
 	* @param object obj 	The object with new data to be assigned to $target
-	* @opt number depth     @see flattenObject(). How far down to nest
+	* @opt number depth     @see flattenObject() for default. How far down to nest
 	*
 	* {type:{				{type:{					{type:{
 	*	shape:'round'   +     	color:'blue'	=		shape:'round'

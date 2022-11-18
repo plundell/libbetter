@@ -138,11 +138,11 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 	/*
 	* Make sure a string is a path, and if it's relative, append the working dir or an optionally passed in one
 	*
-	* @param string path 	    The path to check
-	* @opt string cwd 			If passed AND $path is relative, then this will be used as cwd instead of cwd of process
-	* @opt string cwdAlt 		If 'relative' flag is passed and we don't want paths to be relative to cwdOrig
-	* @opt flag 'make-relative' If passed, paths will be made relative to $cwd or $cwdAlt		
-	* @opt flag 'no-undefined'  If passed, if the path includes the STRING 'undefined' ANYWHERE an error will be thrown
+	* @param string path 	      The path to check
+	* @opt string cwd 			  Relative paths are prepended by this. Defaults to process.cwd()
+	* @opt flag 'make-relative'   If passed make the resolved path relative to $relativeTo		
+	* @opt string relativeTo	  Only used if flag 'make-relative' is passed. Defaults to $cwd which defaults to process.cwd()
+	* @opt flag 'allow-undefined' If passed this method WON'T throw an error if $path contains the string 'undefined'
 	*
 	* @throws <BLE TypeError> 	If $path is not a string
 	*

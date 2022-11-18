@@ -54,9 +54,11 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 
 
 
+
 	//Returned at bottom
 	var _exports={
 		'native':cp
+		,onAnyExitSignal
 		,'execFileInPromise':execFileInPromise
 		,'execFileSync':execFileSync
 		,'isChild':isChild
@@ -72,7 +74,7 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 		,getGroupMap
 		,'dropPrivs':dropPrivs
 		,'ps':ps
-		,onAnyExitSignal
+
 	}
 
 

@@ -47,46 +47,52 @@ module.exports=function export_vX({varType,logVar,_log}){
 
 
 	const _exports={
-		'varType':varType
-		,'logVar':logVar
-		,'checkType':checkType
-		,'checkTypes':checkTypes
-		,'checkProps':checkProps
+		varType
+		,logVar
+		,checkType
+		,useIfType
+		,checkTypes
+		,checkProps
 		,checkTypedArray
 		,isEmpty
 		,isNotEmpty
-		,'sameValue':sameValue
-		,'compare':compare
-		,'getCompareFunc':getCompareFunc
-		,'isPrimitive':isPrimitive
-		,'allPrimitive':allPrimitive
+		,sameValue
+		,compare
+		,getCompareFunc
+		,isPrimitive
+		,allPrimitive
 		,stringToPrimitive
 		,stringToNumber
-		,'forceType':forceType
+		,forceType
 		,jsonParse
-		,'tryJsonParse':tryJsonParse
-		,'tryJsonStringify':tryJsonStringify
-		,'stringifySafe':stringifySafe
-		,'copy':copy
+		,tryJsonParse
+		,tryJsonStringify
+		,stringifySafe
+		,copy
 		,deepCopy
 		,getPrototypeChain
-		,'instanceOf':instanceOf
+		,instanceOf
 		,stripFullLineComments
 		,builtins
 	};
 
 
 
-	/*
+	/**
 	* Check Throw a TypeError with a well formated message
 	*
-	* @param mixed expected 		String vartype, or array of <<
-	* @param any got 				The actual variable that was the wrong type
-	* @param bool|string falseOrCaller 	If ===true, then false is returned on error, if a string, said string 
-	*									  is used in error (see first line of func body vv)
+	* @param string|array|object expected 	  String vartype or an object of the expected class, or an array of them to allow
+	* 										   more than one type. A few special cases exist:
+	* 												'<Foo>'    --> object of class Foo
+	* 												'string*'  --> a string or undefined (note null!=undefined)
+	* 												'string!'  --> non-empty string (non-zero number, non-empty array etc, see isEmpty())
+	* @param any got 				          The actual variable that was the wrong type
+	* @opt string onerror 	                  @see _parseTypeErrorHandling($onerror)
 	*
-	* @throw TypeError 				If the type was bad (unless @falseOrCaller===true)
-	* @return string|bool 			String if arg#3===true (@see helper.varType($got)) or false if arg#3==false && type is bad
+	* @throw <ble BUGBUG>                     If this function was called with the wrong args
+	* @throw <ble TypeError> 		          If the type was bad (unless @see $onerror)
+	*
+	* @return string|bool 			          String if arg#3===true (@see helper.varType($got)) or false if arg#3==false && type is bad
 	*/
 	var lookup={
 		'bool':'boolean'
