@@ -6,7 +6,7 @@
 * This module contains helper/util functions related to OBJECTS
 */
 'use strict';
-module.exports=function export_oX({_log,vX}){
+module.exports=function export_oX({_log,vX,aX}){
 
 	//Methods to export
 	var _exports={
