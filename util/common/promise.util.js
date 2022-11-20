@@ -182,8 +182,12 @@ module.exports=function export_pX({_log,vX,aX,fX}){
 	* 
 	* @return Promise(any, any|'timeout')        Resolves or rejects like $promise, but also rejects with
 	*/
-	function rejectOnUnsettledTimeout(promise,timeout,abandonHandler){
-		vX.checkTypes(['promise','number','function*'],arguments);
+	function rejectOnUnsettledTimeout(...args){
+		
+		var	timeout=aX.getFirstOfType(args,'number')||_log.throwCode("EINVAL","No timeout delay (number) was passed in.")
+			,promise=aX.getFirstOfType(args,'promise')||_log.throwCode("EINVAL","No promise to add the timeout to was passed in.")
+			,abandonHandler=aX.getFirstOfType(args,'function')
+		;
 
 		return Promise.race([
 			promise
