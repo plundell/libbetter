@@ -210,12 +210,18 @@ module.exports=function export_oX({_log,vX,aX}){
 	*
 	* @param object obj
 	* @param string delimiter 	Delimiter to use between key and value, eg '='
+	* @param bool even          Make all the keys the same width by padding with whitespace, that way the delimiters
+	*							will appear in a perfect column
 	*
 	* @return string
 	*/
-	function objectToLines(obj,delimiter='='){
+	function objectToLines(obj,delimiter='=',standardizeKeyWidth=false){
 		vX.checkTypes([['array','object'],'string'],[obj,delimiter])
-		return Object.entries(obj).map(([key,value])=>key+delimiter+value).join('\n');
+		var pad=0;
+		if(standardizeKeyWidth){
+			pad=Object.keys(obj).map(key=>key.length).reduce((a,b)=>Math.max(a,b),0);
+		}
+		return Object.entries(obj).map(([key,value])=>key.padEnd(pad,' ')+delimiter+value).join('\n');
 	}
 
 
