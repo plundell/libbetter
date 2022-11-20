@@ -180,7 +180,7 @@ module.exports=function export_pX({_log,vX,aX,fX}){
 	* @param @anyorder function abandonHandler   Optional. Handler which runs after $promise finishes if $timeout 
 	* 											 expires before $promise finishes. Called with error-first convention.
 	* 
-	* @return Promise(any, any|'timeout')        Resolves or rejects like $promise, but also rejects with
+	* @return Promise(any, any|'timeout')        Resolves or rejects like $promise, but also rejects with string 'timeout' after $timeout
 	*/
 	function rejectOnUnsettledTimeout(...args){
 		
@@ -189,18 +189,22 @@ module.exports=function export_pX({_log,vX,aX,fX}){
 			,abandonHandler=aX.getFirstOfType(args,'function')
 		;
 
-		return Promise.race([
-			promise
+		//Give the promise the .status prop
+		exposePromiseStatus(promise);
 
-			//NOTE: if vv runs first and then ^^ fails then ^^ will NOT produce an uncaught error...
-
-			,sleep(timeout).then(function onTimeout(){
-				//Pass to optional handler...
-				if(abandonHandler)
-					abandonHandler(promise);
-				return Promise.reject('timeout') 
+		var rejectOnUnsettled=sleep(timeout)
+			.then(function onTimeout(){
+				if(promise.status=='pending'){
+					if(abandonHandler){
+						promise.then(success=>abandonHandler(undefined,success),err=>abandonHandler(err))
+					}
+					return Promise.reject('timeout'); 
+				}
 			})
-		]);	
+		;
+		
+		return Promise.race([ promise , rejectOnUnsettled ])
+			//DevNote: Promise.race will suppress UncaughtRejection of all but the first promise to finish
 	}
 
 
@@ -223,13 +227,12 @@ module.exports=function export_pX({_log,vX,aX,fX}){
 			,promise=aX.getFirstOfType(args,'promise')||_log.throwCode("EINVAL","No promise to add the timeout to was passed in.")
 		;
 
-		//Create a flag that get's undone by the finishing of the promise...
-		var finished=false;
-		promise.always(()=>finished=true).catch(()=>{})
+		//Give the promise the .status prop
+		exposePromiseStatus(promise);
 
 		//Run a timeout and if the flag hasn't been undone, call the callback
 		return setTimeout(()=>{
-			if(!finished)
+			if(promise.status=='pending')
 				callback(); //if this throws it will be uncaught... handle with seperate onuncaught...
 		},timeout)
 	}
@@ -417,11 +420,26 @@ module.exports=function export_pX({_log,vX,aX,fX}){
 			})
 		);
 
-		//Finally, add a promise that resolves/rejects when all promises have finished...
+		//Add a promise that resolves/rejects when all promises have finished
 		r.promise=Promise.all(handledPromises).then(()=>{return (r.err?Promise.reject(r):r)}) 
-
-		//...and one that always resolves
+		
+		//Add a couple of handy methods
 		r.always=cb=>Promise.all(handledPromises).then(()=>cb(r));
+		
+		r.timeout=(ms,abandonHandler)=>Promise.race([
+			r.promise
+			,sleep(ms).then(()=>{
+				if(r.progress<100){
+					r.err='timeout'; 
+					if(typeof abandonHandler=='function'){
+						r.always(abandonHandler);
+					}
+					return Promise.reject(r);
+				}
+			})
+		]);
+		
+
 
 		return r;
 	}
