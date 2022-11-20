@@ -13,20 +13,20 @@
 module.exports=function export_mX({_log,aX,vX}){
 
 	//Methods to export
-	var _exports={
+	const _exports={
 
-		'round':round
+		round
 
-		,'getRandomInt':getRandomInt
+		,getRandomInt
 		,getRandomKey
 
-		,'eventTimeout':eventTimeout
+		,eventTimeout
 
 		,keyedBuffer
 
 		,'mapping':{
-			'prepare':prepareMap
-			,'apply':applyMap
+			prepareMap
+			,applyMap
 		}
 
 		,range

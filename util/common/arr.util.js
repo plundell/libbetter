@@ -9,20 +9,20 @@
 module.exports=function export_aX({_log,vX}){
 
 	//Methods to export
-	var _exports= {
-	    'join':join
-	    ,'uniqueArrayFilter':uniqueArrayFilter
-	    ,'extractItem':extractItem
-	    ,'extractItems':extractItems
-	    ,'flatten':flatten
-	    ,'rowsToString':rowsToString
-	    ,'getFirstOfType':getFirstOfType
+	const _exports= {
+	    join
+	    ,uniqueArrayFilter
+	    ,extractItem
+	    ,extractItems
+	    ,flatten
+	    ,rowsToString
+	    ,getFirstOfType
 	    ,getFirstOfTypeOrThrow
-	    ,'arrayDiff':arrayDiff
-	    ,'sameArrayContents':sameArrayContents
-	    ,'anyArrayOverlap':anyArrayOverlap
-	    ,'pushToNestedArray':pushToNestedArray
-	    ,'filterSplit':filterSplit
+	    ,arrayDiff
+	    ,sameArrayContents
+	    ,anyArrayOverlap
+	    ,pushToNestedArray
+	    ,filterSplit
 	    ,findExtract
 	    ,findExtractAll
 	    ,makeArray

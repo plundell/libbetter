@@ -24,11 +24,11 @@ module.exports=function export_sX({cX,stream}){
 
 
 	//Returned at bottom
-	var _exports={
+	const _exports={
 		'native':s
-		,'isReadable':isReadable
-		,'addFlowingEvent':addFlowingEvent
-		,'makeLineEmitter':makeLineEmitter
+		,isReadable
+		,addFlowingEvent
+		,makeLineEmitter
 	}
 
 

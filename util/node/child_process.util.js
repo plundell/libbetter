@@ -56,24 +56,24 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 
 
 	//Returned at bottom
-	var _exports={
+	const _exports={
 		'native':cp
 		,onAnyExitSignal
-		,'execFileInPromise':execFileInPromise
-		,'execFileSync':execFileSync
-		,'isChild':isChild
-		,'childStatus':childStatus
-		,'childProc':childProc
-		,'pidStatus':pidStatus
-		,'killPromise':killPromise
+		,execFileInPromise
+		,execFileSync
+		,isChild
+		,childStatus
+		,childProc
+		,pidStatus
+		,killPromise
 		,resolveOnExit
-		,'spawnReadable':spawnReadable
-		,'spawnLineEmitter':spawnLineEmitter
-		,'argsToString':argsToString
+		,spawnReadable
+		,spawnLineEmitter
+		,argsToString
 		,getId
 		,getGroupMap
-		,'dropPrivs':dropPrivs
-		,'ps':ps
+		,dropPrivs
+		,ps
 
 	}
 

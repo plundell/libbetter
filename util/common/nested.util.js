@@ -7,7 +7,7 @@
 module.exports=function export_nX({_log,vX,oX}){
 
 	//Functions to export
-	var _exports={
+	const _exports={
 		nestedGet
 		,nestedHas
 		,dynamicDelete

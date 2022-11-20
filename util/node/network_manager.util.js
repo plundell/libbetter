@@ -1,13 +1,13 @@
 #!/usr/local/bin/node
 'use strict'; 
 /*
-* @module netX
+* @module nmX
 * @export object 	Object with helper functions
 *
 * Author: palun
 * Date: Aug 2019
 *
-* This module helps do networking tasks
+* This module interfaces with the linux NetworkManager and helps doing networking tasks
 */
 
 module.exports=function exportnmX(dep){
@@ -22,23 +22,23 @@ module.exports=function exportnmX(dep){
 	const log=typeof BetterLog=='function' ? new BetterLog('nmX') :BetterLog;
 
 	//This object is returned at bottom
-	const nm={
-		'running':nm_running
-		,'listDevices':listDevices
-		,'listActiveConnections':listActiveConnections
-		,'listSavedConnections':listSavedConnections
-		,'getConnectionDetails':getConnectionDetails
-		,'listWifiSignals':nm_listWifiSignals
-		,'listWifiNetworks':nm_listWifiNetworks
-		,'listAllWifiNetworks':listAllWifiNetworks
-		,'createConnection':nm_createConnection
-		,'editConnection':editConnection
-		,'deleteConnection':deleteConnection
-		,'connect':connect
-		,'autoconnect':autoconnect
-		,'disconnect':disconnect
-		,'createHotspot':createHotspot
-		,'listHotspotClients':listHotspotClients
+	const _exports={
+		running
+		,listDevices
+		,listActiveConnections
+		,listSavedConnections
+		,getConnectionDetails
+		,listWifiSignals
+		,listWifiNetworks
+		,listAllWifiNetworks
+		,createConnection
+		,editConnection
+		,deleteConnection
+		,connect
+		,autoconnect
+		,disconnect
+		,createHotspot
+		,listHotspotClients
 	}
 	
 
@@ -51,15 +51,14 @@ module.exports=function exportnmX(dep){
 	* @return boolean
 	* @sync
 	*/
-	function nm_running(){
+	function running(){
 		try{
 			var stdout=cpX.native.execFileSync('ps',['aux']).toString();
 			return stdout.match(/bin\/NetworkManager/) ? true : false
 		}catch(err){
 			try{
-				var stdout=cpX.native.execFileSync('systemctl').toString();
-				var nm=stdout.split('\n').filter(line=>line.match(/NetworkManager\.service/))[0];
-				return (nm && nm.match(/loaded active running/)) ? true:false;
+				stdout=cpX.native.execFileSync('systemctl').toString();
+				return stdout.split('\n').filter(line=>line.match(/NetworkManager\.service\s+loaded\s+active\s+running/)).length>0
 			}catch(err2){
 				log.makeError("Unable to determine if NetworkManager was running:")
 					.addHandling(err)
@@ -391,7 +390,7 @@ module.exports=function exportnmX(dep){
 	* @return Promise(array,err)
 	* @async
 	*/
-	function nm_listWifiSignals(ssidFilter){
+	function listWifiSignals(ssidFilter){
 		log.traceFunc(arguments);
 		try{
 			var t=cX.checkType(['array','undefined'],ssidFilter);
@@ -492,8 +491,8 @@ module.exports=function exportnmX(dep){
 	*
 	* @return object 	@see groupSignalsBySSID
 	*/
-	function nm_listWifiNetworks(){
-		return nm_listWifiSignals()
+	function listWifiNetworks(){
+		return listWifiSignals()
 			.then(groupSignalsBySSID)
 		;
 	}
@@ -531,7 +530,7 @@ module.exports=function exportnmX(dep){
 	*/
 	function listAllWifiNetworks(){
 		return cX.groupPromises([
-			nm_listWifiNetworks()
+			listWifiNetworks()
 			,listSavedConnections('wifi')
 		],log).promise.then(({resolved:[available, saved]})=>{
 			var combined={visible:[],outofrange:[],connected:[]};
@@ -610,7 +609,7 @@ module.exports=function exportnmX(dep){
 
 
 
-	function nm_createConnection(args){
+	function createConnection(args){
 		log.traceFunc(arguments);
 		try{
 			cX.checkType('object',args);
@@ -618,7 +617,7 @@ module.exports=function exportnmX(dep){
 			return log.reject(BLE.addHandling('Failed to create connection'));
 		}
 
-		return new Promise(async function _nm_createConnection(resolve,reject){try{
+		return new Promise(async function _createConnection(resolve,reject){try{
 			log.trace('Creating connection: ',args);
 			//Start by resolving any aliases
 			args=resolveAliases(args); 
@@ -902,7 +901,7 @@ module.exports=function exportnmX(dep){
 			options['wifi-sec.psk']=password;
 		}
 
-		return netX.nm.createConnection(options);
+		return createConnection(options);
 	}
 
 
@@ -936,7 +935,7 @@ module.exports=function exportnmX(dep){
 
 
 
-	return nm;
+	return _exports;
 
 
 }

@@ -14,9 +14,9 @@ module.exports=function export_mobX(bu){
 	
 
 	//Methods to export
-	var _exports={
-		'detectSwipe':detectSwipe
-		,'getZoom':getZoom
+	const _exports={
+		detectSwipe
+		,getZoom
 	}
 		
 

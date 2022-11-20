@@ -628,24 +628,24 @@ module.exports=function export_httpX({BetterLog,cX,fsX,netX,pump,...dep}){
 
 
 	return {
-		'https':https
-		,'http':http
+		https
+		,http
 		,'url':u
-		,'zlib':zlib
-		,'querystring':querystring
-		,'codes':codes
-		,'mime':mime
-		,'mimeLookup':mimeLookup
+		,zlib
+		,querystring
+		,codes
+		,mime
+		,mimeLookup
 		,webResourceExists
 		,makeUrlObj
 		,toHref
-		,'get':get
+		,get
 		,head
-		,'request':request
-		,'fetchIncomingMessage':fetchIncomingMessage
-		,'parseMessageData':parseMessageData
-		,'fetchAndParseMessageData':fetchAndParseMessageData
-		,'getMessageParams':getMessageParams
+		,request
+		,fetchIncomingMessage
+		,parseMessageData
+		,fetchAndParseMessageData
+		,getMessageParams
 		// ,wget
 	}
 }

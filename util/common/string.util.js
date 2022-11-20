@@ -13,7 +13,7 @@
 module.exports=function export_stX({_log,vX}){
 
 	//Methods to export
-	var _exports={
+	const _exports={
 		formatString
 		,firstToUpper
 		,firstToLower

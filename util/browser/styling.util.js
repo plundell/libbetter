@@ -14,11 +14,11 @@ module.exports=function export_styleX(bu){
 	
 
 	//Methods to export
-	var _exports={
-		'increaseBrightness':increaseBrightness
-		,'scrollBarWidth':scrollBarWidth
-		,'colorToHex':colorToHex
-		,'createCSSRule':createCSSRule
+	const _exports={
+		increaseBrightness
+		,scrollBarWidth
+		,colorToHex
+		,createCSSRule
 		,appendCSSRule
 		,findCSSRule
 		,getSameOriginStylesheets

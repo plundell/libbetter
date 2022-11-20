@@ -14,7 +14,7 @@ module.exports=function export_mobX(bu){
 
 
 	//Methods to export
-	var _exports={
+	const _exports={
 		markInputting
 		,throttleInput
 		,redispatchChildEvents

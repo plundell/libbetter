@@ -12,7 +12,7 @@
 module.exports=function export_docX(bu){
 
 	//Methods to export
-	var _exports={
+	const _exports={
 		getHashKey
 		,setHashKey
 	}

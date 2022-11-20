@@ -13,7 +13,7 @@
 module.exports=function export_fX({_log,vX,aX}){
 
 	//Methods to export
-	var _exports={
+	const _exports={
 		prettyArgs
 		,getArgNames
 		,callWithNamedArgs	

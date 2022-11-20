@@ -46,7 +46,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 
 
 	//Returned at bottom
-	var _exports={
+	const _exports={
 		'native':fs
 		,'path':_p
 
@@ -56,7 +56,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 		
 		//Exists and Access
 		,existsSync
-		,'exists':existsSync //alias for sync version
+		,existsSync //alias for sync version
 		,existsPromise
 		,accessPromise
 		,accessSync
@@ -64,12 +64,12 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 
 		//Status and File descriptors
 		,fileStatus
-		,'fileOpen':fileOpen
-		,'checkOpenFDs':checkOpenFDs
+		,fileOpen
+		,checkOpenFDs
 
 		//Info
 		,whoami
-		,'who':whoami //alias ^
+		,whoami //alias ^
 		,inodeType
 		,modeToPerm
 		,statSync
@@ -77,6 +77,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 		,'statPromise':stat //alias^
 		,folderSize
 		,fileExtType
+		,isSubdirOf
 
 		//Read
 		,readFilePromise
@@ -87,7 +88,7 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 		,mkdir
 		,prepareWritableFile
 		,writeFileSync
-		,'writeFile':writeFileSync //alias for sync version
+		,writeFileSync //alias for sync version
 		,writeFilePromise
 		,appendFilePromise
 		,touchPromise
@@ -114,9 +115,9 @@ module.exports=function export_fsX({BetterLog,cpX,cX,...dep}){
 		,findParentPromise
 		
 		//Misc
-		,'StoredItem':StoredItem
-		,'getRandomFileName':getRandomFileName
-		,'which':which
+		,StoredItem
+		,getRandomFileName
+		,which
 
 
 	}

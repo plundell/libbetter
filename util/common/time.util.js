@@ -12,7 +12,7 @@
 module.exports=function export_tX({vX,_log}){
 
 	//Methods to export
-	var _exports={
+	const _exports={
 		BetterDate
 		,makeDate
 

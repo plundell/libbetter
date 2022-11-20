@@ -24,58 +24,58 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 
 
 	//returned at bottom
-	var netX={
+	const _export={
 		dns
 
-		,'iw_listInterfaces':iw_listInterfaces
-		,'iw_getIfaceStatus':iw_getIfaceStatus
-		,'iw_validateIface':iw_validateIface
-		,'iw_rfkillList':iw_rfkillList
-		,'iw_listWifiSignals':iw_listWifiSignals
-		,'iw_listWifiNetworks':iw_listWifiNetworks
+		,iw_listInterfaces
+		,iw_getIfaceStatus
+		,iw_validateIface
+		,iw_rfkillList
+		,iw_listWifiSignals
+		,iw_listWifiNetworks
 		//TODO 2019-09-19: must add connect for WEP and open networks
 		
-		,'ws_listSavedNetworks':ws_listSavedNetworks
-		,'ws_getNetworkConf':ws_getNetworkConf
-		,'ws_getAllNetworkConfs':ws_getAllNetworkConfs
-		,'ws_makePassphrase':ws_makePassphrase
-		,'ws_addNetwork':ws_addNetwork
-		,'ws_makeConfObj':ws_makeConfObj
-		,'ws_deleteNetwork':ws_deleteNetwork
-		,'ws_editNetwork':ws_editNetwork
-		,'ws_listAutoconnectNetworks':ws_listAutoconnectNetworks
-		,'ws_createAutoconnectConfig':ws_createAutoconnectConfig
-		,'ws_changeAutoconnectOrder':ws_changeAutoconnectOrder
-		,'ws_connect':ws_connect
-		,'ws_disconnect':ws_disconnect
-		,'ws_procs':ws_procs
+		,ws_listSavedNetworks
+		,ws_getNetworkConf
+		,ws_getAllNetworkConfs
+		,ws_makePassphrase
+		,ws_addNetwork
+		,ws_makeConfObj
+		,ws_deleteNetwork
+		,ws_editNetwork
+		,ws_listAutoconnectNetworks
+		,ws_createAutoconnectConfig
+		,ws_changeAutoconnectOrder
+		,ws_connect
+		,ws_disconnect
+		,ws_procs
 
-		,'dh_restart':dh_restart
+		,dhcpcd_restart
 
-		,'ap_getConf':ap_getConf
-		,'ap_setConf':ap_setConf
-		,'ap_status':ap_status
-		,'ap_start':ap_start
-		,'ap_stop':ap_stop
+		,ap_getConf
+		,ap_setConf
+		,ap_status
+		,ap_start
+		,ap_stop
 
-		,'groupSignalsBySSID':groupSignalsBySSID
-		,'getIfaceState':getIfaceState
+		,groupSignalsBySSID
+		,getIfaceState
 		,getInterfaces
 		,isWifiIface
-		,'getIpAddresses':getIpAddresses
-		,'isConfigured':isConfigured
-		,'monitor':monitor
-		,'waitForIP':waitForIP
-		,'pingSubnet':pingSubnet
-		,'arpingSubnet':arpingSubnet
-		,'arpCache':arpCache
-		,'arpScan':arpScan
-		,'checkPortOpen':checkPortOpen
-		,'findHostsWithOpenPort':findHostsWithOpenPort
-		,'getSubnetIPs':getSubnetIPs
-		,'iwconfig':iwconfig
-		,'validateIp':validateIp
-		,'listeningPorts':listeningPorts
+		,getIpAddresses
+		,isConfigured
+		,monitor
+		,waitForIP
+		,pingSubnet
+		,arpingSubnet
+		,arpCache
+		,arpScan
+		,checkPortOpen
+		,findHostsWithOpenPort
+		,getSubnetIPs
+		,iwconfig
+		,validateIp
+		,listeningPorts
 		,ping
 		,pingSync
 		,checkInternetConnection
@@ -83,37 +83,36 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 		,internetResourceCheck
 
 			
+		,sudo={
+			iw_listWifiSignals
+			,iw_listWifiNetworks
+			,ws_getNetworkConf
+			,ws_getAllNetworkConfs
+			
+			,ws_addNetwork
+			,ws_deleteNetwork
+			,ws_editNetwork
+			
+			,ws_listAutoconnectNetworks
+			,ws_createAutoconnectConfig
+			,ws_changeAutoconnectOrder
+
+			,ws_connect
+			,ws_disconnect
+			
+			,dhcpcd_restart
+
+			,ap_getConf
+			,ap_setConf
+			,ap_status
+			,ap_start
+			,ap_stop
+
+			,arpScan
+		}
 	}
 
-	netX.sudo={
-		'iw_listWifiSignals':iw_listWifiSignals
-		,'iw_listWifiNetworks':iw_listWifiNetworks
-		,'ws_getNetworkConf':ws_getNetworkConf
-		,'ws_getAllNetworkConfs':ws_getAllNetworkConfs
-		
-		,'ws_addNetwork':ws_addNetwork
-		,'ws_deleteNetwork':ws_deleteNetwork
-		,'ws_editNetwork':ws_editNetwork
-		
-		,'ws_listAutoconnectNetworks':ws_listAutoconnectNetworks
-		,'ws_createAutoconnectConfig':ws_createAutoconnectConfig
-		,'ws_changeAutoconnectOrder':ws_changeAutoconnectOrder
-
-		,'ws_connect':ws_connect
-		,'ws_disconnect':ws_disconnect
-		
-		,'dh_restart':dh_restart
-
-		,'ap_getConf':ap_getConf
-		,'ap_setConf':ap_setConf
-		,'ap_status':ap_status
-		,'ap_start':ap_start
-		,'ap_stop':ap_stop
-
-		,'arpScan':arpScan
-	}
-
-	Object.defineProperty(netX,'_log',{value:log});
+	Object.defineProperty(_export,'_log',{value:log});
 
 
 
@@ -2665,6 +2664,6 @@ module.exports=function netX({cX,cpX,fsX,BetterEvents,BetterLog}){
 
 
 
-	return netX;
+	return _export;
 } //end of netX
 

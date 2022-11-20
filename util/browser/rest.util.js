@@ -15,8 +15,8 @@ module.exports=function export_restX(bu){
 	
 
 	//Methods to export
-	var _exports={
-		'POST':POST
+	const _exports={
+		POST
 		// ,'queryStrToObj':queryStrToObj
 		// ,'objToQueryStr':objToQueryStr
 	}

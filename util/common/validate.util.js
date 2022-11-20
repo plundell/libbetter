@@ -11,7 +11,7 @@
 module.exports=function export_validate({netmask,vX}){
 
 	//Methods to export
-	var _exports={
+	const _exports={
 		'email':validateEmail
 		,'ip':validateIP
 	};

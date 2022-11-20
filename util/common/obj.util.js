@@ -9,30 +9,31 @@
 module.exports=function export_oX({_log,vX,aX}){
 
 	//Methods to export
-	var _exports={
-		'objCreateFill':objCreateFill
-		,'combineKeysValues':combineKeysValues
-		,'recombineKeysValues':recombineKeysValues
-		,'addUniqueItemToNestedArr':addUniqueItemToNestedArr
-		,'combineUniqueNestedArrays':combineUniqueNestedArrays
-		,'splitArrayItemsToObject':splitArrayItemsToObject
-		,'indentStringToObject':indentStringToObject
-		,'objectToLines':objectToLines
+	const _exports={
+		objCreateFill
+		,combineKeysValues
+		,recombineKeysValues
+		,addUniqueItemToNestedArr
+		,combineUniqueNestedArrays
+		,splitArrayItemsToObject
+		,indentStringToObject
+		,objectToLines
 		,linesToObj
 		,flattenObject
-		,'hasOwnProperties':hasOwnProperties
-		,'keysToLower':keysToLower
-		,'subObj':subObj
-		,'extract':extract
-		,'emptyObject':emptyObject
+		,hasOwnProperties
+		,keysToLower
+		,subObj
+		,subObjInverse
+		,extract
+		,emptyObject
 		,removeEmptyKeys
-		,'getFirstMatchingProp':getFirstMatchingProp
-		,'groupChildrenByProp':groupChildrenByProp
-		,'groupKeysByValue':groupKeysByValue
-		,'argObjToArr':argObjToArr
-		,'nestedObjToArr':nestedObjToArr
+		,getFirstMatchingProp
+		,groupChildrenByProp
+		,groupKeysByValue
+		,argObjToArr
+		,nestedObjToArr
 		,nestValues
-		,'forEachNestedPrimitive':forEachNestedPrimitive
+		,forEachNestedPrimitive
 		,fillOut
 		,fillWith
 	};

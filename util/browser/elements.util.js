@@ -14,12 +14,12 @@ module.exports=function export_elemX(bu){
 	
 
 	//Methods to export, returned at bottom
-	var _exports={
+	const _exports={
 		'_styles':{} //populated vv with name:{cssselector:stylestring,...}
-		,'getSubAttributes':getSubAttributes
-		,'hasSubAttributes':hasSubAttributes
-		,'getLiveElement':getLiveElement
-		,'getLiveElements':getLiveElements
+		,getSubAttributes
+		,hasSubAttributes
+		,getLiveElement
+		,getLiveElements
 		,getElementsArray
 		,getAllElements
 		
@@ -27,12 +27,12 @@ module.exports=function export_elemX(bu){
 		,stringToNode
 
 		,datasetProxy
-		,'subDataset':subDataset
-		,'extractDatasetProp':extractDatasetProp
-		,'getDatalist':getDatalist
-		,'getElementsByRegExp':getElementsByRegExp
-		,'getIdsFromNodelist':getIdsFromNodelist
-		,'getJsonAttr':getJsonAttr
+		,subDataset
+		,extractDatasetProp
+		,getDatalist
+		,getElementsByRegExp
+		,getIdsFromNodelist
+		,getJsonAttr
 
 		,createElement
 		,createInput
@@ -40,24 +40,24 @@ module.exports=function export_elemX(bu){
 		,addInputOptions
 		,replaceInputOptions
 		,addInputOption
-		,'setValueOnElem':setValueOnElem
-		,'getValueFromElem':getValueFromElem
-		,'getChildInputs':getChildInputs
-		,'getChildInputsData':getChildInputsData
+		,setValueOnElem
+		,getValueFromElem
+		,getChildInputs
+		,getChildInputsData
 		
-		,'setFirstTextNode':setFirstTextNode
-		,'countParentNodes':countParentNodes
-		,'isDescendantOf':isDescendantOf
+		,setFirstTextNode
+		,countParentNodes
+		,isDescendantOf
 		,addClass
-		,'removeClass':removeClass
-		,'prependChild':prependChild
-		,'createTable':createTable
-		,'firstParentTagName':firstParentTagName
+		,removeClass
+		,prependChild
+		,createTable
+		,firstParentTagName
 		,createCustomEventButton
-		,'getAllStyles':getAllStyles
-		,'isDisplayNone':isDisplayNone
-		,'hideElement':hideElement
-		,'showElement':showElement
+		,getAllStyles
+		,isDisplayNone
+		,hideElement
+		,showElement
 		,onOutsideClick
 		,hideOnBackgroundClick
 		,getOrigin
