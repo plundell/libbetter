@@ -32,7 +32,7 @@ module.exports=function export_tX({vX,_log}){
 		,nanotime
 		,'timerStart':nanotime
 		,timerStop 
-		,formatNano
+		,bigintToInt
 
 		,timeToDate
 		,compareTimes
@@ -371,25 +371,39 @@ module.exports=function export_tX({vX,_log}){
 	}
 	//timerStart is alias for nanotime ^
 
-	function timerStop(start,format){
-		return formatNano(nanotime()-start,format);
+	/*
+	* @param <BigInt> nano
+	* @param string format   Defaults to milliseconds
+	*
+	* @return integer        Rounded down     
+	*/
+	function timerStop(start,format='ms'){
+		return bigintToInt(nanotime()-start,format);
 	}
 
-	function formatNano(nano,format){
-		var div=1;
+	/*
+	* @param <BigInt> nano
+	* @param string format   No default
+	*
+	* @throws Error          If @format isn't given
+	*
+	* @return integer        Rounded down     
+	*/
+	function bigintToInt(bigint,format){
+		var div=1n;
 		switch(format){
 			case 's':
 			case 'sec':
 			case 'seconds':
-				div=1000000000; break;
+				div=1000000000n; break;
 			case 'ms':
 			case 'milli':
 			case 'milliseconds':
-				div=1000000; break;
+				div=1000000n; break;
 			case 'us':
 			case 'micro':
 			case 'microseconds':
-				div=1000; break;
+				div=1000n; break;
 			case 'ns':
 			case 'nano':
 			case 'nanoseconds':
@@ -397,7 +411,14 @@ module.exports=function export_tX({vX,_log}){
 			default:
 				throw new Error("Please specify format (arg #2)");
 		}
-		return Math.round(nano/div);
+		bigint=bigint/div;
+		let max=BigInt(Number.MAX_SAFE_INTEGER)
+		if(bigint>max){
+			_log.error("Exceeded Number.MAX_SAFE_INTEGER. Returning the max value, but the real value is "+String(max));
+			return Number(max);
+		}else{
+			return Number(bigint);
+		}
 	}
 
 
