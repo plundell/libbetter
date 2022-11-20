@@ -367,7 +367,7 @@ module.exports=function export_oX({_log,vX,aX}){
 	* @throws TypeError
 	* @return object
 	*/
-	function subObj(obj,filter, mode='includeAll'){
+	function subObj(obj,filter, mode='includeAll',onUndefined=undefined){
 		var types=vX.checkTypes([['array','object'],['string','number','array','function','object']],[obj,filter])
 
 		switch(types[1]){
@@ -434,11 +434,17 @@ module.exports=function export_oX({_log,vX,aX}){
 				})
 				break;
 			case 'includeAll':
+			case 'default':
 			default:
 				keys.forEach(key=>rObj[key]=obj[key]) //this can come from anywhere on the prototype chain AND be undefined
 		}
 
-
+		if(onUndefined!==undefined){
+			for(let key in rObj){
+				if(rObj[key]==undefined)
+					rObj[key]=onUndefined
+			}
+		}
 		return rObj;
 	}
 
