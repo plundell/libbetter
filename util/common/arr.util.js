@@ -231,7 +231,15 @@ module.exports=function export_aX({_log,vX}){
 					onlyB.push(x);
 			}
 		}
-		return [onlyA,onlyB,both];
+		if(flags.includes('undefOnEmpty')){
+			return [
+                    (onlyA.length ? onlyA : undefined)
+                    ,(onlyB.length ? onlyB : undefined)
+                    ,(both.length ? both : undefined)
+			];        
+        }else{
+			return [onlyA,onlyB,both];
+		}
 	}
 
 
