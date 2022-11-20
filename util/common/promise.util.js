@@ -235,6 +235,25 @@ module.exports=function export_pX({_log,vX,aX,fX}){
 	}
 
 
+	/**
+	 * Add the property 'status' to a promise which can have values 'resolved', 'rejected', 'pending'
+	 * 
+	 * NOTE: This will prevent the promise producing an *UncaughtRejection* which may lead to it failing silently
+	 *       if you havn't set a .catch() anywhere
+	 * 
+	 * @param <Promise> promise
+	 * 
+	 * @throws TypeError
+	 * @return void
+	 */
+	function exposePromiseStatus(promise){
+		vX.checkType('promise',promise)
+		if(!promise.status){
+			var status='pending'
+			promise.then(()=>status='resolved',()=>status='rejected');
+			Object.defineProperty(promise,'status',{configurable:true, get:()=>status})
+		}
+	}
 
 
 
