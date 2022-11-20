@@ -448,6 +448,26 @@ module.exports=function export_oX({_log,vX,aX}){
 		return rObj;
 	}
 
+	/**
+	 * Get a sub-object which doesn't include certain keys
+	 * 
+	 * @param object original
+	 * @param array excludeKeys
+	 * 
+	 * @return object       An object containing all those keys from $original which are not listed in $keys
+	 * @anyorder
+	 */
+	function subObjInverse(...args){
+		const excludeKeys=aX.getFirstOfType(args,'array');
+		const original=aX.getFirstOfType(args,'object');
+		const rObj={};
+		for(let key of Object.keys(original)){
+			if(!excludeKeys.includes(key))
+				rObj[key]=original[key];
+		}
+		return rObj
+	}
+
 
 	function extract(obj,filter, mode){
 		var data=subObj(obj,filter,mode);
