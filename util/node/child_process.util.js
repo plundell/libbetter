@@ -86,8 +86,10 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 	*
 	* @return object 
 	*/
-	function _execPrepare(cmd,args=[],options={}){
+	function _execCommonPrepare(cmd,args=[],options={}){
 		cX.checkTypes(['string','array','object'],[cmd,args,options]);
+
+
 
 		//Figure out which executable will run. Remember, node will use options.env.PATH if specified, in which
 		//case 'which' won't work since 'which' uses process.env.PATH
@@ -101,7 +103,9 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 
 		//Build the ret obj
 		var obj= {
-			options
+			//Some options are meant to be used by here, the rest by the native execFile() and execFileSync()
+			localOptions:cX.extract(options,['lines','log','noLog'])
+			,nativeOptions:options
 
 			//Any failed exec's, in order for the stack to show who called this method, we create one here 
 			//(outside the callback), and then we back it up by one vv
@@ -110,20 +114,17 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 			,start:Date.now()
 
 			,cmd:[cmd].concat(args).join(' ')
+
 		}
 
 		//Log depending on options
-		if(typeof options.log=='object' && options.log && options.log._isBetterLog){
-			options.log.info("About to run: "+obj.cmd);
-			delete options.log;
-		}else if(options.noLog){
-			delete options.noLog;
-		}else{
-			log.trace(obj.cmd);
+		if(!obj.localOptions.noLog){
+			let _log=obj.localOptions.log;
+			if(_log && _log._isBetterLog)
+				obj.localOptions.log.info("About to run: "+obj.cmd);
+			else
+				log.trace(obj.cmd); //the log defined at the top of this file
 		}
-
-		//A few options are meant for use here, extract them from the options sent to exec
-		obj.localOptions=cX.extract(options,['lines'])
 
 		return obj;
 
@@ -137,24 +138,22 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 	* This function wraps an execFile() in a promise that resolves if the child runs to end successfully 
 	* else it rejects
 	*
-	* @params @see _execPrepare
+	* @params @see _execCommonPrepare
 	*
 	* @return Promise(obj,<ble>) 		Resolves/reject with {stdout, stderr, duration, signal, code}. On reject this object
 	*									is instance of BetterLogEntry
 	* @access public
 	*/
 	function execFileInPromise(cmd,args,options){
-		var obj=_execPrepare(cmd,args,options); //NOTE: If command fails, this line will show as 'where'
+		var obj=_execCommonPrepare(cmd,args,options); //NOTE: If command fails, this line will show as 'where'
 
 		//Wrap the whole execution in a promise, which we return once the song has been played
 		return new Promise(function _execFileInPromise(resolve, reject){
-			var child_process=cp.execFile(cmd, args, obj.options, (error, stdout, stderr)=>{
-					
-				//Build return object
-				Object.assign(obj,{error,stdout,stderr})
-
+			var child_process=cp.execFile(cmd, args, obj.nativeOptions, (error, stdout, stderr)=>{					
 				try{
-					resolve(_execFileCallback(obj));
+					//Add the args we got in this callback to the object created by _execCommonPrepare() then hand
+					//execution over to the common callback function
+					resolve(_execFileCommonCallback(Object.assign(obj,{error,stdout,stderr})));
 				}catch(ble){
 					reject(ble); //NOTE: ble has props stdout, stderr, duration, signal
 				}
@@ -166,7 +165,7 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 	/**
 	* This function wraps around execFileSync() and returns an object
 	*
-	* @params @see _execPrepare
+	* @params @see _execCommonPrepare
 	*
 	* @throw <ble> 			If cmd exits with error. Also has props of @return
 	*
@@ -175,19 +174,19 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 	*/
 	function execFileSync(cmd, args, options){
 		// log.highlight(log.logVar(Object.values(arguments),3000));
-		var obj=_execPrepare(cmd,args,options);
+		var obj=_execCommonPrepare(cmd,args,options);
 		
 		//2019-10-22: For now we just pipe everything, which means on success we can't access stderr
 		//				Check out more here:
 		//		https://github.com/rauschma/stringio/blob/master/ts/src/index.ts
 		//		https://2ality.com/2018/05/child-process-streams.html
-		if(!obj.options.stdio){
-			obj.options.stdio='pipe'
+		if(!obj.nativeOptions.stdio){
+			obj.nativeOptions.stdio='pipe'
 		}
 			
 		try{
 			//TODO 2019-10-29: on success we loose stderr... And some commands use it to write important stuff
-			obj.stdout=cp.execFileSync(cmd, args, obj.options)
+			obj.stdout=cp.execFileSync(cmd, args, obj.nativeOptions)
 		}catch(err){
 			Object.assign(obj,err);
 			obj.error=err.message;
@@ -195,45 +194,55 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 			  // but we're using the one created in execPrepare())
 		}
 		
-		return _execFileCallback(obj); //can throw
+		return _execFileCommonCallback(obj); //can throw
 	};
 
 
 
 
-	/*
-	* @throw ble
-	* @return object
-	*/
-	function _execFileCallback(obj) {
-		// console.log(obj);
-		//Make sure we have strings
+	/**
+	 * Common internal function for execFileInPromise() and execFileSync()
+	 *  
+	 * @param object obj    Object created by _execCommonPrepare()
+	 * 
+	 * @throw Object.assign(<BLE>,@return)      Can be used as error or same as @return
+	 * @return object   						{stdout, stderr, duration, signal, code}
+	 */
+	function _execFileCommonCallback(obj) {
+		//Make sure we have strings without surrounding whitespace
 		obj.stdout=String((obj.stdout||'')).trim();
 		obj.stderr=String((obj.stderr||'')).trim();
 		obj.duration=Date.now()-obj.start;
 
 		//Extract the error
-		var error=obj.message||obj.error||null;
+		const error=obj.message||obj.error||null;
 		delete obj.message;
 		delete obj.error;
 
-		obj.signal=obj.killSignal||obj.signal||null;
-		obj.code=obj.code||(obj.error?obj.error.code:null)||obj.status||null;
-
-		var stack=obj.stack;
+		//Extract the stack set by _execCommonPrepare() which we'll only use below if there was an error
+		const stack=obj.stack;
 		delete obj.stack;
 
+		//Make sure we have a signal and code
+		obj.signal=obj.killSignal||obj.signal||null;
+		obj.code=obj.code||(obj.error?obj.error.code:null)||obj.status||0;
 
-		//If 'lines' options was passed
-		if(obj.localOptions.lines)
+
+		//If 'lines' options was passed we split the output to lines
+		if(obj.localOptions.lines){
 			obj.stdout=obj.stdout.split('\n');
+			obj.stderr=obj.stderr.split('\n');
+		}
 
+
+		// Now, what to do?
 	    if(!error){
+			//If there was no error we return the object
 	    	return obj;
 
 	    }else{
-	    	//Ok, we're going to throw. We'll create a <ble>, but we'll assign the same props as $obj so
-	    	//you can use it just the same
+	    	//If there was an error we throw. Technically we'll throw a <ble> so it works like an error, but we'll assign 
+	    	//the same props as $obj so you can use it just the same
 
 	    	//In case the error contains the stderr, remove it so we only have it in one place
 	    	var msg=error.toString()
@@ -259,7 +268,9 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 	    			msg=m+'. '+msg;
 	    	}
 	    	msg+='.'
-    		var ble=log.makeError(msg,obj.stderr).setCode(obj.code).setStack(stack).changeWhere(1);
+    		var ble=log.makeError(msg,obj.stderr).setStack(stack).changeWhere(1);
+    		if(obj.code)
+    			ble.setCode(obj.code);
     		
     		Object.assign(ble,cX.subObj(obj,['stdout','stderr','duration','signal']))
 
