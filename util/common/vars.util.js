@@ -124,7 +124,7 @@ module.exports=function export_vX({varType,logVar,_log}){
 			}
 		}
 		if(arguments.length<2)
-			_log.throw(`BUGBUG: checkType() expected at least 2 args, got ${arguments.length}:`,arguments);
+			throw _log.makeError(`BUGBUG: checkType() expected at least 2 args, got ${arguments.length}:`,arguments);
 		
 		var errStr=(typeof falseOrCaller=='string' ? falseOrCaller+'() e' : 'E') +"xpected ";
 		var typeOfExpType=(varType(expectedType));
@@ -202,17 +202,13 @@ module.exports=function export_vX({varType,logVar,_log}){
 					//2019-11-28: It seems BetterLog instances fail here
 				}
 			default:
-				_log.throw("BUGBUG: checkType() expected arg#1 to be string/array/object/function, got: "+logVar(expectedType));
+				throw _log.makeError("BUGBUG: checkType() expected arg#1 to be string/array/object/function, got: "+logVar(expectedType));
 		}
 
 		if(falseOrCaller===true)
 			return false;
-		else{
-			let entry=_log.makeTypeError(expectedType,got)
-				.setOptions({printFunc:true})
-				.changeWhere(1)//1==remove this line from the stack
-			entry.func=falseOrCaller;
-			entry.throw();
+		}else{
+			throw _log.makeTypeError(expectedType,got).prepend(onerror).changeWhere(1) //1==remove this line from the stack
 		}
 	}
 
@@ -220,7 +216,7 @@ module.exports=function export_vX({varType,logVar,_log}){
 
 	function checkTypes(expArr,gotArr, falseOrCaller){
 		if(varType(expArr)!='array')
-			_log.throw("BUGBUG: checkTypes() expected arg#1 to be an array, got: "+logVar(expArr));
+			throw _log.makeError("arg#1 to be an array",expArr).setCode('BUGBUG');
 
 		switch(varType(gotArr)){
 			case 'object':
@@ -233,7 +229,7 @@ module.exports=function export_vX({varType,logVar,_log}){
 				gotArr=Array.from(gotArr);
 				break;
 			default:
-				_log.throw("BUGBUG: checkTypes() expected arg#2 to be an array, got: "+logVar(gotArr));
+				throw _log.makeError("arg#2 to be <Arguments> or an array",gotArr).setCode('BUGBUG');
 		}
 
 		//Make sure we have the same number in each array
@@ -258,21 +254,8 @@ module.exports=function export_vX({varType,logVar,_log}){
 		}catch(err){
 			if(falseOrCaller===true)
 				return false;
-			else{
-				try{
-					//FutureDev: Don't make this one long chain of calls, since we want to log BLE vv if smth goes wrong
-					var BLE=_log.makeError(err);
-					BLE.prepend((typeof falseOrCaller=='string' ? falseOrCaller+'() a' : 'A')+'rg #'+(i+1)+': ');
-					BLE.changeWhere(1);
-					
-				}catch(e){
-					console.error("BUGBUG checkTypes(): something was wrong with <BetterLogEntry>:",e,typeof BLE,BLE);
-					console.error(err);
-					throw err;
-				}
-				//FutureDev: Obviously we have to throw OUTSIDE the above block, else the catch will trigger, duhdoojj
-				BLE.throw();
-
+			}else{
+				throw ble.prepend(onerror+`[#${i}] `).changeWhere(1);
 			}
 		}
 	}
@@ -321,6 +304,7 @@ module.exports=function export_vX({varType,logVar,_log}){
 						msg=falseOrCaller+'(): '+msg;
 					}
 					_log.throwCode(code,msg,obj,err);
+					throw _log.makeError(onerror+msg,obj).setCode(code);
 				}
 
 			}
