@@ -86,19 +86,87 @@ async function testNetX(dep){
 
 
 
+		{
+			let ifaces;
+			try{
+				ifaces=netX.getIpAddresses();
+				if(dep.cX.varType(ifaces)!='object'){
+					throw "it didn't return an object at all";
+				}else if(!Object.keys(ifaces).length){
+					throw "it returned an empty object which would only be accurate if no network ifaces existed";
+				}else if(Object.values(ifaces).some(listOfBlocks=>!Array.isArray(listOfBlocks))){
+					throw "at least one of the values wasn't an array";
+				}else if(Object.values(ifaces).some(arr=>arr.some(block=>dep.cX.varType(block)!='object'))){
+					throw "at least one of the arrays contained a non-object item"
+				}else{
+					log.info("getIpAddresses() correctly returned an object-of-arrays-of-objects:",ifaces);	
+				}
+			}catch(err){
+				let msg="getIpAddresses() should have returned an object where keys are interface names and values are "+
+					"arrays-of-objects where each child object is an IP configured on that interface";
+				msg+=(typeof err=='string' ? ", but" : ".")
+				throw log.makeError(msg,err,ifaces);
+			}
+			try{
+				ifaces=netX.getIpAddresses('!lo')
+				if(netX.getIpAddresses('!lo').hasOwnProperty('lo')){
+					throw "Interface 'lo' was not excluded"; 
+				}else{
+					log.info("getIpAddresses('!lo') correctly excluded the 'lo' interface",ifaces);
+				}
+			}catch(err){
+				throw log.makeError("getIpAddresses('!lo') failed.",err,ifaces);
+			}
+			try{
+				ifaces=netX.getIpAddresses('cidr');
+				if(Object.values(ifaces).some(arr=>arr.some(block=>typeof block!='string'))){
+					throw "Expected an object-of-arrays-of-strings, but we got:"; 
+				}else{
+					log.info("getIpAddresses('cidr') correctly returned an object-of-arrays-of-strings:",ifaces);
+				}
+			}catch(err){
+				throw log.makeError("getIpAddresses('cidr') failed.",err,ifaces);
+			}
+		}
 
 
-		var ifaces=netX.getIpAddresses('!lo');
-		netX._log.info('interfaces (except lo):'); 
-		console.log(ifaces);
 
-		console.log('only cidrs',netX.getIpAddresses('cidr'))
 
-		var iface=Object.keys(ifaces)[0];
-		netX._log.debug('Checking state of iface',iface);
-		await netX.getIfaceState(iface)
-			.then(state=>netX._log.info('state of '+iface,state))
-		;
+
+
+			
+		{
+			let ifaces=netX.getInterfaces();
+			if(dep.cX.varType(ifaces)!='object'){
+				throw log.makeError("getInterfaces() did not return an object:",ifaces);
+			}
+			let iface=Object.keys(ifaces)[0];
+			log.debug('Checking state of iface '+iface+"...");
+			let state=await netX.getIfaceState(iface);
+			log.info(`netX.getIfaceState('${iface}'): `,state);
+			
+			
+			log.debug("Creating monitor on iface '"+iface+"'...");
+			let monitor=new netX.monitor(netX._log,'dynamicNoiseFilter');
+			monitor.setIface(iface); //this should set a couple of things...
+			if(monitor.iface!=iface
+				|| monitor.up!=state.up
+				|| monitor.link!=state.link
+			){
+				throw log.makeError("monitor.setIface() didn't set initial values correctly (compare to state^ and IPs^^):"
+					,Object.assign({},monitor));
+			}else{
+				log.info("monitor.setIface() correctly setup initial values on monitor:",Object.assign({},monitor));
+			}
+
+
+			// await (new Promise(res=>{setTimeout(res,1000)}));
+			// log.info(`(new monitor()).start('${iface}') after 1 second:\n`,monitor);
+		}
+
+
+
+
 
 
 		log.info("rfkillList():",netX.iw_rfkillList());
