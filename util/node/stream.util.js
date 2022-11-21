@@ -89,23 +89,35 @@ module.exports=function export_sX({cX,stream}){
 	}
 
 
-
-	function makeLineEmitter(readable){
+	/**
+	 * Turn a readable stream into a "line emiter" which buffers 'data' events and emits a 'line' event when a \n is received
+	 * 
+	 * @param <EventEmitter> readable   An event emitter which emits 'data' events 
+	 * @param boolean        force      Add listener even if _buffer property has already been defined. Default false 
+	 * 
+	 * @return void
+	 */
+	function makeLineEmitter(readable,force=false){
 		// console.log("LINE EMITTER:",readable);
-		Object.defineProperty(readable,'_buffer',{writable:true,value:''});
+		if(!readable.hasOwnProperty('_buffer') || force){
+			Object.defineProperty(readable,'_buffer',{writable:true,value:''});
 		
-		readable.on('data',(data)=>{
-			readable._buffer+=data.toString(); //Add to buffer...
-			var lines=readable._buffer.split('\n'); //...then turn entire buffer into array of lines...
-			readable._buffer=lines.pop()||"" //...but add the last item back since it hasn't received it's \n yet
-			
-			// if(!lines.length)
-			// 	console.log("Still single line:",lines);
-			// else
-			// 	console.log('Emitting lines:',lines);
-			//Emit all lines, skipping empties...
-			lines.forEach(line=>line && readable.emit('line',line));
-		})
+			readable.on('data',function bufferDataEmitLines(data){
+				//Combine buffer with new data and split into lines
+				let lines=(readable._buffer+data.toString()).split('\n'); 
+				
+				//The last item of the array will either be a half-finished line (ie. no trailing \n) or it'll be an empty string
+				//because the last character was in fact \n. Either way we remove it from the array and store it back as the buffer
+				readable._buffer=lines.pop()||"" 
+
+				//Now loop through the lines, emitting one by one
+				for(let line of lines){
+					if(line){
+						readable.emit('line',line);
+					}
+				}
+			})
+		}
 	}
 
 
