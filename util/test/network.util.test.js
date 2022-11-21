@@ -18,9 +18,9 @@ else
 
 async function testNetX(dep){
 	try{
+		console.log('----------- TESTING: netX ----------');
 
 		//First thing we do is load the module under test, this will show any syntax errors right away
-		console.log('----------- TESTING: netX ----------');
 		const loader=require('../node/network.util.js');
 		if(typeof loader!='function'){
 			console.error(loader);
@@ -29,25 +29,55 @@ async function testNetX(dep){
 
 		dep=dep||{};
 
+		console.debug("netX depends on the following: cX, cpX, fsX, BetterEvents, BetterLog");
+
 		//Next we make sure we have an instance of a logger
-		if(!dep.hasOwnProperty('BetterLog')){
-			console.log("++ Loading real BetterLog and setting syslog to print all...");
-			dep.BetterLog=require('../../better_log.js');
+		var log;
+		if(dep.hasOwnProperty('log')){
+			console.debug("++ Using passed-in instance of log:",dep.log);
+			log=dep.log;
+		}else{
+			if(!dep.hasOwnProperty('BetterLog')){
+				console.log("++ BetterLog not passed in, requiring...");
+				dep.BetterLog=require('../../log/better_log.js');
+			}
 			var root=__dirname.split('/');
 			root.pop();
 			root=root.join('/')+'/';
-			dep.BetterLog.defaultOptions.set({
-				autoPrintLvl:1
+			dep.BetterLog.defaultOptions={
+				autoPrintLvl:2
 				,removeRoot:root
 				,printId:true
-			}); 
-		}else{
-			console.warn("++ NOTE: Using passed-in BetterLog:",dep.BetterLog);
+			}; 
+			console.debug("++ Creating instance of BetterLog...");
+			log=new dep.BetterLog('TEST_netX');
+			// log=dep.BetterLog.syslog;
+			console.log(log)
+		} 
+
+		if(!dep.hasOwnProperty('BetterEvents')){
+			console.log("++ BetterEvents not passed in, requiring...")
+			dep.BetterEvents=require('../../events/better_events.js');
+		}
+
+		if(!dep.hasOwnProperty('cX')||!dep.hasOwnProperty('cpX')||!dep.hasOwnProperty('fsX')){
+			if(!dep.hasOwnProperty('BetterUtil')){
+				console.log("++ BetterUtil not passed in, requiring...")
+				dep.BetterUtil=require('../bu-node.js')(dep);
+			}
+			dep.cX=dep.BetterUtil.cX
+			dep.cpX=dep.BetterUtil.cpX
+			dep.fsX=dep.BetterUtil.fsX
 		}
 
 
+
+
 		//Instantiate
-		console.log('----------- STARTING TEST ----------')
+		log.note('----------- STARTING TEST ----------')
+
+
+		log.debug("Running netX loader function with dependencies:",dep);
 		var netX=loader(dep);
 		if(typeof netX!='object'){
 			console.error(netX);
@@ -55,7 +85,7 @@ async function testNetX(dep){
 		}
 
 
-		netX._log.info("Log on netX works");
+
 
 
 		var ifaces=netX.getIpAddresses('!lo');
@@ -71,20 +101,20 @@ async function testNetX(dep){
 		;
 
 
-		netX._log.info("rfkillList():",netX.iw_rfkillList());
+		log.info("rfkillList():",netX.iw_rfkillList());
 		
 
 
 		await netX.iw_listWifiSignals()
 			.then(arr=>{
 				if(!Array.isArray(arr) || !arr.length)
-					netX._log.makeError("Expected non-empty array of network signals, got:",arr).throw('TypeError');
+					log.makeError("Expected non-empty array of network signals, got:",arr).throw('TypeError');
 				if(!arr[0] instanceof Object|| !arr[0].bssid || !arr[0].ssid)
-					netX._log.makeError("Expected array to contain objects with signal data, first one:",arr[0]).throw('TypeError');
+					log.makeError("Expected array to contain objects with signal data, first one:",arr[0]).throw('TypeError');
 
-				netX._log.info("iw.listWifiSignals():",arr)
+				log.info("iw.listWifiSignals():",arr)
 			})
-			.catch(err=>netX._log.error("iw.listWifiSignals():",err))
+			.catch(err=>log.error("iw.listWifiSignals():",err))
 		;
 		
 
@@ -92,10 +122,10 @@ async function testNetX(dep){
 		console.log('----------- TEST COMPLETE ----------')
 	}catch(err){
 		console.error('------------ TEST FAILED ----------')
-		if(netX && netX._log){
+		if(netX && log){
 			debugger;
 			// console.log(typeof err)
-			netX._log.error(err);
+			log.error(err);
 		}else{
 			console.error(err);
 		}
