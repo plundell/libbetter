@@ -111,7 +111,7 @@ module.exports=function export_vX({varType,logVar,_log}){
 	// 	,'number':Number
 	// 	,'boolean':Boolean
 	// }
-	function checkType(expectedType, got,falseOrCaller=false){
+	function checkType(expectedType, got,onerror='throw'){
 		//First do a very quick check so we don't waste time in non-complicated situations
 		if(typeof got==expectedType){
 			//One scenario here is that we expected 'object' but got 'array' or 'null' which shows up as 'object'
@@ -119,20 +119,21 @@ module.exports=function export_vX({varType,logVar,_log}){
 				if(got && got.constructor.name=='Object'){
 					return expectedType;		
 				}
-			}else{
+			}else if(expectedType!='number' || !isNaN(got)){
 				return expectedType;
 			}
 		}
 		if(arguments.length<2)
 			throw _log.makeError(`BUGBUG: checkType() expected at least 2 args, got ${arguments.length}:`,arguments);
 		
-		var errStr=(typeof falseOrCaller=='string' ? falseOrCaller+'() e' : 'E') +"xpected ";
 		var typeOfExpType=(varType(expectedType));
 		switch(typeOfExpType){
 			case 'string':
-				if(expectedType.endsWith('*')){
+				if(expectedType.endsWith('?')||expectedType.endsWith('*')){ //means 'this or undefined or null'
 					if(got==undefined)
 						return 'undefined';
+					else if(got==null)
+						return 'null'
 					else
 						expectedType=expectedType.slice(0,-1)
 				}
@@ -140,7 +141,7 @@ module.exports=function export_vX({varType,logVar,_log}){
 					expectedType=expectedType.slice(0,-1)
 					if(isEmpty(got)){
 						expectedType='non-empty '+expectedType;
-						break;
+						break; //fail at bottom
 					}
 				}
 
@@ -155,7 +156,7 @@ module.exports=function export_vX({varType,logVar,_log}){
 						return gotType;
 					}
 					// console.log('PRIMITIVE but failed',gotType,typeof gotType);
-				}else if(expectedType=='falsy'){
+				}else if(expectedType=='falsy'||expectedType=='falsey'){
 					if(got)
 						break; //truthy, fail at bottom
 					return gotType;
@@ -187,9 +188,11 @@ module.exports=function export_vX({varType,logVar,_log}){
 			//          will fail if given String() when expecting string
 				
 			case 'array':
-				var goodType=expectedType.find(t=>checkType(t,got,true))
-				if(goodType)
-					return goodType;
+				for(let t of expectedType){
+					if(checkType(t,got,'nothrow'))
+						return t;
+					
+				}
 				break;
 			case 'object':
 			case 'function':
@@ -205,24 +208,38 @@ module.exports=function export_vX({varType,logVar,_log}){
 				throw _log.makeError("BUGBUG: checkType() expected arg#1 to be string/array/object/function, got: "+logVar(expectedType));
 		}
 
-		if(falseOrCaller===true)
+		onerror=_parseTypeErrorHandling(onerror);
+		if(onerror==='false'){
 			return false;
 		}else{
 			throw _log.makeTypeError(expectedType,got).prepend(onerror).changeWhere(1) //1==remove this line from the stack
 		}
 	}
 
+	function useIfType(expectedType,value,fallback){
+		return (checkType(expectedType,value,true) ? value : fallback)
+	}
 
 
-	function checkTypes(expArr,gotArr, falseOrCaller){
+	/**
+	 * Check the types of multiple args
+	 * 
+	 * @param array expArr
+	 * @param array|<Arguments> gotArr  
+	 * @opt string onerror 	               @see _parseTypeErrorHandling($onerror)    
+	 * 
+	 * @throws <ble BUGBUG>     If this function was called with the wrong args
+	 * @throws <ble TypeError> 	If args passed to this func is wrong (incl. if arg#1 isn't an object), @see checkType
+	 * @throws <ble TypeError> 	If any of the props are the wrong type 	
+	 * @throws <ble EMISSING> 	If any of the props are missing
+	 * 
+	 * @return array      
+	 */
+	function checkTypes(expArr,gotArr, onerror='throw'){
 		if(varType(expArr)!='array')
 			throw _log.makeError("arg#1 to be an array",expArr).setCode('BUGBUG');
 
 		switch(varType(gotArr)){
-			case 'object':
-				gotArr=Object.values(gotArr); //so we can pass 'arguments'. NOTE: that it only contains explicitly passed
-											  //args, not default values or omitted
-				break;
 			case 'array':
 			case 'arguments':
 				//It's important we don't alter the array, in case it's used again
@@ -247,12 +264,13 @@ module.exports=function export_vX({varType,logVar,_log}){
 		try{
 			var i, gotTypes=[];
 			for(i=0;i<expArr.length;i++){
-				gotTypes.push(checkType(expArr[i],gotArr[i],false)); //false==throw
+				gotTypes.push(checkType(expArr[i],gotArr[i],'throw'));
 			}
 			return gotTypes;
 
-		}catch(err){
-			if(falseOrCaller===true)
+		}catch(ble){
+			onerror=_parseTypeErrorHandling(onerror);
+			if(onerror==='false'){
 				return false;
 			}else{
 				throw ble.prepend(onerror+`[#${i}] `).changeWhere(1);
@@ -260,23 +278,24 @@ module.exports=function export_vX({varType,logVar,_log}){
 		}
 	}
 
-	/*
-	* @param object obj 	Any object
-	* @param object types 	Keys are same as obj, values are expected types (string or array of strings)
-	* @opt bool|string falseOrCaller
+	/**
+	* @param object obj 	     Any object
+	* @param object types 	     Keys are same as obj, values are expected types (string or array of strings)
+	* @opt string onerror 	     @see _parseTypeErrorHandling($onerror)
 	*
-	* @throws <ble TypeError> 	If args passed to this func is wrong (incl. if arg#1 isn't an object), @see checkType
-	* @throws <ble EINVAL> 		If any of the props are the wrong type 	
+	* @throws <ble BUGBUG>      If this function was called with the wrong args
+	* @throws <ble TypeError>	If any of the props are the wrong type 	
 	* @throws <ble EMISSING> 	If any of the props are missing
 	*
-	* @return object|false
+	* @return object|throw|false      An object with same keys as $obj and values are the types passed. If there is a 
+	*                                 problem the default behaviour is to throw unless @see onerror
 	*/
-	function checkProps(obj,types,falseOrCaller){
+	function checkProps(obj,types,onerror='throw'){
 		if(!checkType('object',types,true)) 
-			_log.makeError("checkProps() expects arg#2 to be an object, got:",types).throw("BUGBUG");
+			throw _log.makeError("checkProps() expects arg#2 to be an object, got:",types).setCode("BUGBUG");
 
 		if(!checkType('object',obj,true)) 
-			_log.makeError(`Expected an object with certain props, but didn't even get an object, got a ${varType(obj)}:`,obj).throw('TypeError');
+			throw _log.makeError(`Expected an object with certain props, but didn't even get an object, got a ${varType(obj)}:`,obj).setCode('BUGBUG');
 
 		
 		try{
@@ -285,25 +304,21 @@ module.exports=function export_vX({varType,logVar,_log}){
 				try{
 					gotTypes[key]=checkType(types[key],obj[key],false); //false==>throw or return type
 				}catch(err){
-					if(falseOrCaller===true){
+					onerror=_parseTypeErrorHandling(onerror);
+					if(onerror==='false'){
 						return false;
 					}
 					
 					//If we're here we're going to throw...
-					var msg=` prop '${key}'.`
-						,code;
+					let msg,code;
 					if(obj.hasOwnProperty(key)){
-						msg='Bad'+msg;
-						code='EINVAL';
+						msg=`Property '${key}' (see obj below) is wrong type. `+err.msg;
+						code='TypeError';
 					}else{
-						msg='Missing'+msg;
+						msg=`Missing required property '${key}' (see obj below)`;
 						code='EMISSING';
-						err=undefined;
 					}
-					if(falseOrCaller){
-						msg=falseOrCaller+'(): '+msg;
-					}
-					_log.throwCode(code,msg,obj,err);
+					
 					throw _log.makeError(onerror+msg,obj).setCode(code);
 				}
 
@@ -314,13 +329,16 @@ module.exports=function export_vX({varType,logVar,_log}){
 		}
 	}
 
-	/*
+	/**
 	* Check that all items in an array are a given type/types
+	*
 	* @param array arr
-	* @param string|array[string...] expectedType @see checkType
-	* @opt bool|string falseOrCaller
+	* @param string|array[string...] expectedType      @see checkType
+	* @opt string onerror 	                           @see _parseTypeErrorHandling($onerror)
+	* 
+	* @return array         Values are the type at the corresponding index
 	*/
-	function checkTypedArray(arr,expectedType,falseOrCaller){
+	function checkTypedArray(arr,expectedType,onerror='throw'){
 		if(!checkType('array',arr,true))
 			_log.makeError("BUGBUG: checkTypedArray expects arg#1 to be an array of values, got:",arr).throw("TypeError");
 		if(!checkType(['string','array'],expectedType,true)) 
@@ -332,10 +350,10 @@ module.exports=function export_vX({varType,logVar,_log}){
 				try{
 					types[i]=checkType(expectedType,arr[i],false); //false==>throw or return type
 				}catch(ble){
-					if(falseOrCaller===true)
+					onerror=_parseTypeErrorHandling(onerror);
+					if(onerror==='false')
 						return false;
-					else if(falseOrCaller)
-						ble.prepend(falseOrCaller+'(): ');						
+					ble.prepend(onerror); //only has effect if non-empty string
 					ble.append(`at item #${i}`).throw(); //caught again vv
 				}
 
@@ -345,6 +363,31 @@ module.exports=function export_vX({varType,logVar,_log}){
 			ble.changeWhere(1).throw();
 		}
 	}
+
+	/**
+	* Helper function for internal use by all the functions that check types
+	* 
+	* @param bool|string onerror       @see function body for handling
+	* 
+	* @return string  'false' if the function should return false, else a prefix to start the error message (possibly empty)
+	*/
+	function _parseTypeErrorHandling(onerror){
+		if(typeof onerror=='undefined' || onerror==='throw')
+			return '';
+
+		if(typeof onerror=='boolean' || onerror==='nothrow' || onerror==='false')
+			return 'false';
+
+		if(typeof onerror!='string')
+			onerror=String(onerror);
+
+		if(!onerror.match(/: $/))
+			onerror+=': ';
+
+		return onerror;
+	}
+
+
 
 	/*
 	* Check if a variable contains information, ie. everything except: undefined, null, empty string,
