@@ -479,97 +479,106 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 
 
 
-	/*
-	* Spawn a child process which should emit streaming data on stdout, with suitable logging, adding a few bells and whistled
+	/**
+	* Spawn a child process which should emit streaming data on stdout, with suitable logging, adding a 
+	* few bells and whistles:
 	*	- emit 'readable' on child itself when stdout becomes readable (and stays that way for 10ms)
 	*   - emit 'nodata' on child itself if stdout ends before producing any data
-	*   - optionally emit 'timeout' on child itself it no data is produced within $readableTimeout
-	* 	- stderr stores all output on child._stderr and emits 'line' on 
+	*   - emit 'timeout' on child itself if $timeout is passed
+	* 	- store stderr lines on child._stderr
 	*
-	* @param string  path 		      Path to executable
-	* @opt array|string|number 	args  Array args or single arg
-	* @opt number    readableTimeout  Default none. Kill child if it hasn't become readable in this many ms
+	* @param string             path 	 Path to executable
+	* @opt array|string|number 	args     Array args or single arg
+	* @opt number               timeout  SIGTERM child if it hasn't become readable in this many ms. 0 (default) to disable
 	*
 	* @throws <ble TypeError>
 	*
 	* @return <ChildProcess> 	
 	*/
 	
-	function spawnReadable(path,args=[],readableTimeout=0){
+	function spawnReadable(path,args=[],timeout=0){
+		//Create a stack which can be used in various callbacks below
+		var stack=(new Error()).stack;
 
-
-		if(cX.checkTypes(['string',['array','string','number'],'number'],[path,args,readableTimeout])[1]!='array'){
-			args=Array(args);
+		{
+			let types=cX.checkTypes(
+				['string',['array','string','number'],'number']
+				,[path   ,args                       ,timeout]
+			)
+			if(types[1]!='array'){
+				args=Array(args);
+			}
 		}
 
-		var who=path;
 		log.debug(`About to spawn: "${path} ${argsToString(args)}"`);
 		var child=cp.spawn(path, args);
-		child.who=childProc(child);
+		child.who=childFilenameAndPid(child);
 		log.debug(`Spawned ${child.who}, expecting stdout to become readable and produce data...`);
 
 
-
-		//Turn stderr into a line emitter and store it all on the child itself
+		//Turn stderr into a line emitter and store all the lines on the return <ChildProcess> 
 		sX.makeLineEmitter(child.stderr)
 		Object.defineProperty(child,'_stderr',{value:[]});
 		child.stderr.on('line',line=>child._stderr.push(line));
 
 
-		//Emit 'readable' on the child itself when stdout becomes readable (and stays that way for 10ms, since sometimes
-		//it quickly goes from readable to unreadable)
+		//We're spawning something that should produce data, so if it doesn't before ending we emit 'nodata'
+		//which contains a <BLE warning>
 		var wasReadable=false;
-		child.stdout.once('readable',()=>{
-			wasReadable=true;
-			setTimeout(function spawnReadable_onReadable(){
-				if(child.stdout.readable){ 
-				  //^is true as long as stream has not been destroyed or emitted 'end' or 'error' (but does not mean there is data right now)
-					log.info(child.who+': stdout is now readable');
-					child.emit('readable',child.stdout);
-				}else{
-					//Log a warning
-					let length=`${child.stdout.readableLength} ${child.stdout.readableObjectMode ? 'objects':'bytes'}`;
-					log.warn(`${child.who}: stdout became readable NOW (with ${length}), but became unreadable within 10ms`);
-				}
-			},10)
-		});
-
-
-		//We're spawning something that should produce data, so if it doesn't do some stuff on the first event that signals that...
-		var onEnd=cX.once(function spawnReadable_onEnd(evt,who){
+		var onEnd=cX.once(function spawnReadable_onEnd(extra=''){
 			if(!wasReadable){
-				//Emit 'nodata' on the child (where 'error' is reserved for not being able to start or communicate with the process...
-				child.emit('nodata');
-				//...and error on stdout (where 'error' can be used more freely)
-				child.stdout.emit('error',log.error(`${child.who}: stdout produced no data and${who} has now ${evt}`));
+				let msg='stdout produced no data';
+				if(exitSignals.length)
+					msg+=` (before parent process received ${exitSignals.join(',')})`;
+				child.emit('nodata',log.makeEntry('warn',`${msg} ${extra}`).setStack(stack));
 			}
 		});
-		child.stdout.on('end',()=>onEnd('ended'));
-		child.stdout.on('close',()=>onEnd('closed'));
-		child.on('exit',()=>onEnd('exited',' the process'));
+		child.stdout.on('end',()=>onEnd('and the stream has now ended'));
+		child.stdout.on('close',()=>onEnd('and the stream has now closed'));
+		child.on('exit',()=>onEnd('before the process exited'));
 
 
-
-		//If opted, emit if stdout didn't become readble without a timeout
-		if(readableTimeout>0){
-			setTimeout(()=>{
-				if(!wasReadable){
-					child.emit('timeout',log.warn(`${child.who}: stdout did not become readable within ${readableTimeout} ms`));
+		//If opted, kill child if not readable within a timeout (and emit 'timeout' event with a <BLE warning>)
+		if(timeout>0){
+			setTimeout(async function spawnReadable_timeout(){
+				try{
+					if(!wasReadable){
+						let err=log.makeError(`${child.who}: stdout did not become readable within ${timeout} ms`).setStack(stack);
+						await child.emit('timeout',err);
+						await killPromise(child,'SIGTERM',1000,'SIGKILL');
+					}
+				}catch(e){
+					log.error(e);
 				}
-			},readableTimeout);
+			},timeout);
 		}
+
+
+		//In order to check if stdout ever "truly" became readable (ie. there was actual data there) we listen
+		//for the native event, wait 10ms, then check for data
+		child.stdout.once('readable',()=>{
+			setTimeout(function spawnReadable_onReadable(){ //name function for sake of logging vv
+				if(child.stdout.readable && child.stdout.readableLength){
+					wasReadable=true; 
+					log.makeEntry('debug',child.who+': stdout is now readable').setStack(stack).exec();
+					child.emit('readable',child.stdout);
+				}
+			},10) 
+		});
+
+
+
 
 		//Finally, create a promise on the child we can use to wait for it to become readable
-		var {promise,resolve,reject}=cX.exposedPromise();
-		var logReject=(evt,err)=>{
-			err=log.makeError(`${child.who} failed with '${evt}'`,err)
-			return reject([err,child]); 
+		var callCommonErrorHandler=function(evt,err){
+			if(typeof child.onError=='function'){
+				child.onError(log.makeError(`${child.who} failed with '${evt}'`,err).setStack(stack));
+			}
 		}
-		child.readablePromise=promise;
-		child.on('error',logReject.bind('error'));
-		child.on('timeout',logReject.bind('timeout'));
-		child.on('nodata',logReject.bind('nodata'));
-		child.on('readable',(stdout)=>resolve(child)); //unlike the 'readable' event, we resolve with the child object
+		child.on('error',callCommonErrorHandler.bind('error'));
+		child.on('timeout',callCommonErrorHandler.bind('timeout'));
+		child.on('nodata',callCommonErrorHandler.bind('nodata'));
+
 
 		return child;
 	}
