@@ -4,6 +4,8 @@
 * @author plundell
 * @license MIT
 * @description Helper and utility functions for browsers
+* @depends BetterLog
+* @depends BetterEvent
 *
 * This script should be bundled for the web with browserify or webpack
 */
@@ -45,12 +47,6 @@ module.exports=function exportBetterUtilBrowser(dep){
         }
     })
 
-
-
-    //Since this module is exclusivly used in the browser, we also set the exported
-    //object on the passed in one, that way if dep==window it will automatically be
-    //exposed globally (and if dep is just a temp object then no worries...)
-    dep.BetterUtil=bu;
 
     return bu;
 
