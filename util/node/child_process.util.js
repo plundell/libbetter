@@ -314,10 +314,13 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 	}
 
 
+
 	/*
 	* @return string 	One of: not_running,suspended,running
 	*/
 	function childStatus(child){
+		isChild(child,'throw if not');
+
 		if(child!=null && isChild(child) && child.exitCode===null){ 
 			//NOTE: child.killed only specifies that a signal (including SIGSTOP, ie. pausing it) has been 
 			//      issued, not if the child is dead... that's why we don't check it...
