@@ -63,7 +63,8 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 		,execFileSync
 		,isChild
 		,childStatus
-		,childProc
+		,childFilenameAndPid
+		,'childProc':childFilenameAndPid //alias for backwards comp
 		,pidStatus
 		,killPromise
 		,resolveOnExit
@@ -284,6 +285,18 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 		return (typeof x == 'object' && x!=null && x instanceof cp.ChildProcess);
 	}
 	
+	/**
+	 * Get a child process 'basename(pid)'
+	 * 
+	 * @param <ChildProcess> child
+	 * 
+	 * @return string
+	 */
+	function childFilenameAndPid(child){
+		isChild(child,'throw if not');
+		return `${_path.basename(child.spawnfile)}(${child.pid})`;
+	}
+
 
 	/*
 	* @return string 	One of: not_running,suspended,running
@@ -306,12 +319,7 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 
 
 	
-	function childProc(child){
-		if(!isChild(child))
-			throw new TypeError("Expected child process, got: "+cX.logVar(child));
 
-		return `${_path.basename(child.spawnfile)}(${child.pid})`;
-	}
 
 	
 	
