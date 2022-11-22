@@ -281,8 +281,24 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 	}
 
 
-	function isChild(x){
-		return (typeof x == 'object' && x!=null && x instanceof cp.ChildProcess);
+
+	/**
+	 * Check if an unknown is a <ChildProcess>
+	 * 
+	 * @param any x
+	 * @param bool thrw   If true and $x is not a <ChildProcess> throw a TypeError
+	 * 
+	 * @throws <BLE TypeError>  @see $thrw
+	 * @return <ChildProcess>|undefined
+	 */
+	function isChild(x,thrw=false){
+		if(typeof x == 'object' && x!=null && x instanceof cp.ChildProcess){
+			return x;
+		}else{
+			if(thrw)
+				throw log.makeTypeError("an instance of <ChildProcess>",child);
+			return;
+		}
 	}
 	
 	/**
