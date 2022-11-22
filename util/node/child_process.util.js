@@ -382,75 +382,83 @@ module.exports=function export_cpX({BetterLog,cX,sX,...dep}){
 
 
 
-	/*
-	* @return Promise(bool|str, str) 	Rejects if killing failed within the timeout. Resolves with:
-	*										false: @child was not a child process (see log)
-	*										true: child already dead
-	*										string: signal that killed child 
-	*/
-	function killPromise(child, signal='SIGTERM', timeout=5000, killOnTimeout=false){
-		if(!isChild(child)){
-			log.debug("Child probably already dead, got: "+cX.logVar(child));
-			return Promise.resolve(false);
-		}
-
-		var status=childStatus(child);
+	/**
+	 * Send a kill signal to a child process and wait for it to terminate
+	 * 
+	 * @param <ChildProcess>  child             The child process to kill
+	 * @param string          signal            The signal to use, default SIGTERM
+	 * @param number          timeout           Reject the returned promise if child hasn't died before this timeout. Default 5000
+	 * @param boolean         sigkillOnTimeout  Send SIGKILL on reject
+	 * 
+	 * @throws <BLE TypeError>          on bad $child (NOTE: throws, does not reject)
+	 * 
+	 * @return Promise(bool|str, str) 	Resolves with:
+	 *										true    child already dead
+	 *										string  signal that killed child 
+	 * 									Rejects if killing failed within the timeout. 
+	 */
+	function killPromise(child, signal='SIGTERM', timeout=5000, sigkillOnTimeout=false){
+		var status=childStatus(child); //TypeError if not child process
 		if(status=='not_running')
 			return Promise.resolve(true);  
 
-		cX.checkTypes(['string','number','boolean'],[signal,timeout,killOnTimeout]);
-		
-		signal=signal.toUpperCase();
+		try{
+			cX.checkTypes(['string','number','boolean'],[signal,timeout,sigkillOnTimeout]);
+			
+			signal=signal.toUpperCase();
 
-		let pid=child.pid;
-		return new Promise((resolve,reject)=>{
-			//First setup a listener for the 'exit' event which will resolve the promise
-			child.on('exit',(code,sig)=>{
-				// log.note(`Exit event for ${pid} emitted NOW with signal ${signal}`);
-			//2019-01-21: "sig" is not properly returned (and code varies with process), so just use the last used signal
-			//			  to determine what killed the process (see vv when we re-set signal to SIGKILL)
-				if(pidStatus(pid)=='not_running'){
-					resolve(signal);
-				}else{
-					log.error(`Process ${pid} still running despite child object exited`);
-					//TODO 2018-12-12: may want to add manual kill here...
+			let pid=child.pid;
+			return new Promise((resolve,reject)=>{
+				//First setup a listener for the 'exit' event which will resolve the promise
+				child.on('exit',(code,sig)=>{
+					// log.note(`Exit event for ${pid} emitted NOW with signal ${signal}`);
+				//2019-01-21: "sig" is not properly returned (and code varies with process), so just use the last used signal
+				//			  to determine what killed the process (see vv when we re-set signal to SIGKILL)
+					if(pidStatus(pid)=='not_running'){
+						resolve(signal);
+					}else{
+						log.error(`Process ${pid} still running despite child object exited`);
+						//TODO 2018-12-12: may want to add manual kill here...
+					}
+				});
+
+
+				//Then send the kill signal
+				log.note(`Sending ${signal} to ${pid} NOW`);
+				child.kill(signal);
+
+				//If the child is suspened and the signal is SIGTERM then we need to SIGCONT the child for the 
+				//signal to be caught and followed (SIGKILL can work through suspension)
+				if(status=='suspended' && signal=='SIGTERM'){
+					log.note(`Continuing ${pid} so SIGTERM can happen...`)
+					child.kill('SIGCONT');
 				}
+
+				setTimeout(()=>{
+					if(pidStatus(pid)!='not_running'){
+						//If child is still running after timeout...
+						if(sigkillOnTimeout){
+							//...either try to force kill it
+							log.warn(`${signal} on pid ${pid} timed out (${timeout} ms), trying SIGKILL...`);
+							signal='SIGKILL' //used by on.exit^^
+							child.kill(signal);
+							
+							setTimeout(()=>{
+								if(pidStatus(pid)!='not_running')
+									reject(`Failed to force kill child within ${timeout*2} ms`);
+							},timeout);
+
+						}else
+							//...or reject the promise
+							reject(`Failed to kill child within ${timeout} ms`);
+					}
+				},timeout);
+
+
 			});
-
-
-			//Then send the kill signal
-			log.note(`Sending ${signal} to ${pid} NOW`);
-			child.kill(signal);
-
-			//If the child is suspened and the signal is SIGTERM then we need to SIGCONT the child for the 
-			//signal to be caught and followed (SIGKILL can work through suspension)
-			if(status=='suspended' && signal=='SIGTERM'){
-				log.note(`Continuing ${pid} so SIGTERM can happen...`)
-				child.kill('SIGCONT');
-			}
-
-			setTimeout(()=>{
-				if(pidStatus(pid)!='not_running'){
-					//If child is still running after timeout...
-					if(killOnTimeout){
-						//...either try to force kill it
-						log.warn(`${signal} on pid ${pid} timed out (${timeout} ms), trying SIGKILL...`);
-						signal='SIGKILL' //used by on.exit^^
-						child.kill(signal);
-						
-						setTimeout(()=>{
-							if(pidStatus(pid)!='not_running')
-								reject(`Failed to force kill child within ${timeout*2} ms`);
-						},timeout);
-
-					}else
-						//...or reject the promise
-						reject(`Failed to kill child within ${timeout} ms`);
-				}
-			},timeout);
-
-
-		});
+		}catch(e){
+			return Promise.reject(e);
+		}
 	}
 
 
